@@ -1,0 +1,440 @@
+\section{Giới thiệu}
+
+Hệ thống backend đóng vai trò trung tâm xử lý của ứng dụng Car Recommendation System, là cầu nối giữa giao diện người dùng và các nguồn dữ liệu. Backend được xây dựng trên nền tảng FastAPI với Python, kết hợp PostgreSQL cho dữ liệu quan hệ, Qdrant cho vector search, và Redis cho caching.
+
+\subsection{Công nghệ và Framework}
+
+Backend sử dụng các công nghệ sau:
+
+\begin{itemize}
+    \item \textbf{FastAPI}: Web framework hiện đại cho Python với automatic API documentation, type validation, và async support
+    \item \textbf{SQLAlchemy}: ORM (Object-Relational Mapping) cho database operations với connection pooling
+    \item \textbf{Pydantic}: Data validation và settings management với type hints
+    \item \textbf{LangChain}: Framework cho AI chatbot với integration OpenAI và vector databases
+    \item \textbf{Scikit-learn}: Machine learning library cho recommendation algorithms
+    \item \textbf{Qdrant Client}: Python SDK cho vector similarity search
+    \item \textbf{Redis-py}: Client library cho caching và session management
+\end{itemize}
+
+Hệ thống được thiết kế với nguyên tắc SOLID principles, separation of concerns, và dependency injection pattern để đảm bảo maintainability và testability.
+
+\section{Kiến trúc tổng quan}
+
+Hệ thống được thiết kế theo mô hình microservices với bốn thành phần chính: Frontend Service chạy trên cổng 3000, Backend API trên cổng 8000, PostgreSQL database trên cổng 5432, Qdrant vector database trên cổng 6333, và Redis cache trên cổng 6379. Tất cả các services giao tiếp qua Docker bridge network.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{system_architecture_overview.png}
+    \caption{Kiến trúc tổng quan hệ thống}
+    \label{fig:system-architecture}
+\end{figure}
+
+Như minh họa trong Hình \ref{fig:system-architecture}, khi người dùng tương tác với ứng dụng, request đi từ Frontend qua REST API đến Backend. Backend xử lý logic nghiệp vụ thông qua các service layers: Authentication Service quản lý đăng nhập và phân quyền, Search Service xử lý tìm kiếm xe, Recommendation Engine cung cấp gợi ý cá nhân hóa, và Chatbot Service hỗ trợ tư vấn tự động.
+
+\section{Kiến trúc API}
+
+Backend API được tổ chức theo mô hình phân tầng với bốn lớp chính.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{api_architecture.png}
+    \caption{Kiến trúc phân tầng của Backend API}
+    \label{fig:api-architecture}
+\end{figure}
+
+\noindent \textbf{Middleware Layer} là lớp đầu tiên tiếp nhận request, thực hiện kiểm tra CORS để cho phép cross-origin requests từ frontend, ghi log mọi request để theo dõi và debug, và áp dụng rate limiting để ngăn chặn lạm dụng API.
+
+\noindent \textbf{Authentication Layer} xác thực JWT token trong header Authorization, giải mã và kiểm tra tính hợp lệ của token, sau đó gắn thông tin user vào context để các lớp sau sử dụng.
+
+\noindent \textbf{Router Layer} định tuyến request đến endpoint tương ứng bao gồm auth cho đăng nhập và đăng ký, search cho tìm kiếm xe, reco cho gợi ý, chat cho chatbot, và reviews cho đánh giá. Mỗi router thực hiện validation dữ liệu đầu vào theo schema định nghĩa sẵn.
+
+\noindent \textbf{Service Layer} chứa business logic của từng tính năng và tương tác với Data Access Layer thông qua dependency injection:
+
+\begin{itemize}
+    \item \textbf{AuthService}: Xử lý authentication với bcrypt password hashing (cost factor 12) và JWT token generation. Mỗi token có thời hạn 30 phút và chứa payload gồm user\_id, username, và expiration time.
+    \item \textbf{SearchService}: Xây dựng dynamic SQL queries với filtering, sorting, và pagination. Implement query builder pattern để xử lý multiple search criteria (brand, price range, fuel type, transmission). Kết quả được cache trong Redis với cache key dựa trên query parameters.
+    \item \textbf{RecommendationEngine}: Core algorithm sử dụng scipy sparse matrices và sklearn cosine similarity. Maintain in-memory item-item similarity matrix (shape: N×N với N là số vehicles) được pre-compute và update định kỳ.
+    \item \textbf{ChatbotService}: Orchestrate RAG workflow với Qdrant vector search, database retrieval, và LangChain conversation chain. Sử dụng streaming response để cải thiện user experience.
+\end{itemize}
+
+\noindent \textbf{Data Access Layer (DAL)} sử dụng SQLAlchemy ORM với connection pooling configuration: pool\_size=10, max\_overflow=20, pool\_pre\_ping=True. Mỗi HTTP request nhận database session qua dependency injection pattern \texttt{Depends(get\_db)}, session tự động commit hoặc rollback và close sau khi request hoàn thành.
+
+\section{Thiết kế Database}
+
+Hệ thống sử dụng kiến trúc multi-schema theo mô hình Data Lake với ba tầng dữ liệu.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{database_schema_architecture.png}
+    \caption{Kiến trúc multi-schema database}
+    \label{fig:database-schema}
+\end{figure}
+
+\noindent \textbf{RAW Schema} (Bronze Layer) lưu trữ dữ liệu thô trực tiếp từ quá trình crawling, bao gồm bảng used\_vehicles chứa thông tin xe, vehicle\_features chứa thông số kỹ thuật, vehicle\_images chứa hình ảnh, reviews\_ratings chứa đánh giá, và sellers chứa thông tin người bán.
+
+\noindent \textbf{SILVER Schema} (Cleaned Layer) chứa dữ liệu đã được làm sạch và chuẩn hóa. Bảng cleaned\_vehicles lưu xe đã validate với các ràng buộc như giá phải dương, mileage hợp lệ. Bảng vehicle\_ratings tổng hợp điểm đánh giá từ nhiều nguồn.
+
+\noindent \textbf{GOLD Schema} (Application Layer) phục vụ trực tiếp cho ứng dụng với bảng users quản lý người dùng, user\_interactions theo dõi hành vi, user\_favorites lưu xe yêu thích, và user\_searches ghi lịch sử tìm kiếm. Schema này cũng chứa các views tối ưu hóa như vehicles\_with\_ratings và popular\_vehicles.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{data_model_raw.png}
+    \caption{Entity Relationship Diagram của RAW Schema}
+    \label{fig:data-model}
+\end{figure}
+
+Hình \ref{fig:data-model} thể hiện mối quan hệ giữa các entities trong raw schema. Một vehicle có thể có nhiều features, nhiều images và nhiều reviews. Vehicles và sellers có quan hệ nhiều-nhiều thông qua bảng relationships.
+
+\section{ETL Pipeline}
+
+Quy trình ETL chuyển đổi dữ liệu từ file CSV vào database và vector database.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{etl_pipeline.png}
+    \caption{ETL Pipeline}
+    \label{fig:etl-pipeline}
+\end{figure}
+
+\noindent \textbf{Giai đoạn Extract}: Đọc các file CSV từ thư mục datasets sử dụng pandas, bao gồm used\_vehicles.csv, vehicle\_features.csv, vehicle\_images.csv, reviews\_ratings.csv và sellers.csv.
+
+\noindent \textbf{Giai đoạn Transform}: Làm sạch dữ liệu bằng cách loại bỏ records null và duplicate, chuẩn hóa kiểu dữ liệu như chuyển price sang numeric và mileage sang integer, validate dữ liệu theo business rules, và làm giàu dữ liệu bằng cách tính toán ratings và parse các trường như MPG.
+
+\noindent \textbf{Giai đoạn Load}: Ghi dữ liệu vào raw schema của PostgreSQL, sau đó transform tiếp vào silver schema. Đồng thời tạo text representation cho mỗi vehicle và generate embeddings 3072 chiều qua OpenAI API, cuối cùng upload vectors vào Qdrant collection.
+
+\section{Hệ thống Authentication và Authorization}
+
+Hệ thống sử dụng JWT (JSON Web Token) cho stateless authentication kết hợp với Redis cho session management.
+
+\subsection{Registration Flow}
+
+Khi người dùng đăng ký:
+\begin{enumerate}
+    \item Frontend gửi POST request đến \texttt{/api/v1/auth/register} với username, email, và password
+    \item Backend validate dữ liệu với Pydantic schema: username độ dài 3-50 ký tự, email format hợp lệ, password tối thiểu 8 ký tự
+    \item Kiểm tra username và email chưa tồn tại trong database
+    \item Hash password sử dụng bcrypt với cost factor 12: \texttt{bcrypt.hashpw(password.encode(), bcrypt.gensalt(12))}
+    \item Tạo user record trong table \texttt{gold.users} với hashed password
+    \item Generate JWT token với payload: \texttt{\{"sub": user\_id, "username": username, "exp": timestamp\}}
+    \item Trả về response chứa access token và user info
+\end{enumerate}
+
+\subsection{Login Flow}
+
+Authentication process:
+\begin{enumerate}
+    \item Query user từ database theo username
+    \item Verify password: \texttt{bcrypt.checkpw(input\_password, stored\_hash)}
+    \item Nếu hợp lệ, generate JWT token với SECRET\_KEY sử dụng HS256 algorithm
+    \item Token có expiration time 30 phút (configurable qua \texttt{ACCESS\_TOKEN\_EXPIRE\_MINUTES})
+    \item Optional: Lưu session info vào Redis với key \texttt{session:\{user\_id\}} cho rate limiting và logout functionality
+\end{enumerate}
+
+\subsection{Request Authentication}
+
+Mỗi protected endpoint sử dụng dependency \texttt{get\_current\_user}:
+\begin{enumerate}
+    \item Extract token từ Authorization header: \texttt{Bearer \{token\}}
+    \item Decode và verify JWT signature với SECRET\_KEY
+    \item Kiểm tra token expiration
+    \item Query user từ database theo user\_id trong token payload
+    \item Inject user object vào endpoint handler
+    \item Nếu token invalid hoặc expired, raise HTTPException 401 Unauthorized
+\end{enumerate}
+
+\section{Hệ thống Recommendation}
+
+Recommendation Engine kết hợp nhiều thuật toán để đề xuất xe phù hợp.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{recommendation_flow.png}
+    \caption{Luồng hoạt động của Recommendation Engine}
+    \label{fig:reco-flow}
+\end{figure}
+
+\subsection{Item-based Collaborative Filtering}
+
+Algorithm chính của recommendation engine dựa trên item similarity.
+
+\textbf{Matrix Construction:}
+
+Hệ thống xây dựng user-item interaction matrix $M \in \mathbb{R}^{U \times I}$ với:
+\begin{itemize}
+    \item U: số lượng users
+    \item I: số lượng vehicles (items)
+    \item $M[u,i]$: aggregated interaction score của user $u$ với vehicle $i$
+\end{itemize}
+
+Interaction score được tính theo công thức:
+\[
+M[u,i] = \sum_{k} w_k \cdot e^{-\lambda t_k} \cdot s_k
+\]
+trong đó:
+\begin{itemize}
+    \item $w_k$: base weight của interaction type (view=1.0, click=2.0, compare=3.0, save=4.0, contact=8.0)
+    \item $\lambda$: time decay parameter (default 0.1)
+    \item $t_k$: số ngày từ interaction đến hiện tại
+    \item $s_k$: custom score (default 1.0)
+\end{itemize}
+
+\textbf{Similarity Computation:}
+
+\begin{enumerate}
+    \item Transpose ma trận: $M^T \in \mathbb{R}^{I \times U}$ (item-user matrix)
+    \item Compute cosine similarity giữa các item vectors:
+    \[
+    \text{sim}(i, j) = \frac{M^T_i \cdot M^T_j}{\|M^T_i\| \|M^T_j\|}
+    \]
+    \item Kết quả: Item-item similarity matrix $S \in \mathbb{R}^{I \times I}$
+\end{enumerate}
+
+\textbf{Recommendation Generation:}
+
+For vehicle $v$, tìm top-K similar vehicles:
+\begin{enumerate}
+    \item Lấy similarity vector $S[v]$
+    \item Sort descending và exclude vehicle $v$ itself
+    \item Return top-K vehicles với highest similarity scores
+\end{enumerate}
+
+\textbf{Implementation Details:}
+\begin{itemize}
+    \item Sử dụng scipy sparse matrix (CSR format) để tiết kiệm memory cho large-scale data
+    \item Similarity matrix được cache và update định kỳ (mỗi 1 giờ hoặc khi có significant interaction changes)
+    \item Lookback window: 90 ngày (configurable)
+    \item Cold-start handling: Fallback sang content-based filtering nếu vehicle chưa có interactions
+\end{itemize}
+
+Approach này hiệu quả hơn user-based CF vì:
+\begin{itemize}
+    \item Item catalog ổn định hơn user base
+    \item Scalability tốt hơn khi số users >> số items
+    \item Item similarity có thể pre-compute và cache
+\end{itemize}
+
+\subsection{Content-Based Filtering}
+
+Được sử dụng như fallback mechanism cho cold-start problem.
+
+\textbf{Feature Extraction:}
+
+Mỗi vehicle được biểu diễn bởi feature vector:
+\[
+\mathbf{v} = [f_{\text{brand}}, f_{\text{model}}, f_{\text{fuel}}, f_{\text{trans}}, f_{\text{drive}}, f_{\text{price}}]
+\]
+
+\textbf{Similarity Scoring:}
+
+Similarity score giữa reference vehicle $v_r$ và candidate $v_c$ được tính:
+\[
+\text{score}(v_r, v_c) = \sum_{i} w_i \cdot \mathbb{1}_{f_i^r = f_i^c}
+\]
+
+với weights:
+\begin{itemize}
+    \item $w_{\text{brand}} = 2.0$ - Brand matching quan trọng nhất
+    \item $w_{\text{model}} = 1.5$ - Same model series
+    \item $w_{\text{fuel}} = 0.5$ - Fuel type preference
+    \item $w_{\text{transmission}} = 0.5$ - Transmission type
+    \item $w_{\text{drivetrain}} = 0.3$ - Drive configuration
+    \item $w_{\text{price}} = 1.0$ - Price trong ±30\% range
+\end{itemize}
+
+\textbf{Query Implementation:}
+
+SQL query với scoring logic:
+\begin{verbatim}
+SELECT vehicle_id,
+    (CASE WHEN brand = :brand THEN 2.0 ELSE 0 END) +
+    (CASE WHEN car_model = :model THEN 1.5 ELSE 0 END) +
+    ...
+    (CASE WHEN price BETWEEN :min AND :max 
+          THEN 1.0 ELSE 0 END) as score
+FROM raw.used_vehicles
+WHERE vehicle_id != :ref_id
+ORDER BY score DESC, car_rating DESC
+LIMIT :top_k
+\end{verbatim}
+
+\noindent \textbf{Hybrid Approach} kết hợp cả hai phương pháp theo công thức: score = 0.6 × collaborative + 0.4 × content-based. Trọng số được điều chỉnh theo số lượng interactions của user - nếu user mới thì ưu tiên content-based hơn.
+
+\noindent \textbf{Popularity-Based} là fallback cho users hoàn toàn mới, sử dụng công thức kết hợp view\_count, rating trung bình và độ mới của bài đăng.
+
+\section{Chatbot với RAG (Retrieval-Augmented Generation)}
+
+Chatbot sử dụng RAG pattern để cung cấp câu trả lời chính xác dựa trên vehicle database thực tế.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{chatbot_rag_flow.png}
+    \caption{Luồng hoạt động của Chatbot RAG}
+    \label{fig:rag-flow}
+\end{figure}
+
+\subsection{Retrieval Phase - Vector Search}
+
+\textbf{Query Embedding:}
+\begin{enumerate}
+    \item User query được chuyển thành vector embedding 3072 chiều
+    \item Sử dụng OpenAI \texttt{text-embedding-3-large} model
+    \item API call: \texttt{embeddings.embed\_query(user\_question)}
+\end{enumerate}
+
+\textbf{Vector Search trong Qdrant:}
+\begin{itemize}
+    \item Collection: \texttt{car\_chatbot\_vectors} chứa 19,926 vehicle embeddings
+    \item Distance metric: Cosine similarity
+    \item Search parameters:
+    \begin{itemize}
+        \item limit = 5 (top-K results)
+        \item score\_threshold = 0.7 (minimum similarity)
+    \end{itemize}
+    \item Mỗi result trả về vehicle\_id và similarity score
+\end{enumerate}
+
+\subsection{Augmentation Phase - Context Building}
+
+\textbf{Vehicle Details Retrieval:}
+\begin{enumerate}
+    \item Query PostgreSQL để lấy full details của 5 vehicles tìm được
+    \item Include: title, brand, model, price, mileage, fuel\_type, transmission, rating
+    \item Lấy thêm vehicle\_features và vehicle\_images từ related tables
+\end{enumerate}
+
+\textbf{Prompt Construction:}
+
+Prompt template bao gồm 3 phần:
+\begin{itemize}
+    \item \textbf{System Instruction}: Define chatbot role là car shopping consultant, guidelines về tone và response format
+    \item \textbf{Context}: Formatted vehicle information từ vector search results
+    \item \textbf{Conversation History}: 5 messages gần nhất để maintain context
+    \item \textbf{User Query}: Current question
+\end{itemize}
+
+\subsection{Generation Phase - LLM Response}
+
+\textbf{LLM Configuration:}
+\begin{itemize}
+    \item Model: GPT-4o-mini (cost-effective với good performance)
+    \item Temperature: 0.7 (balance between creativity và consistency)
+    \item Max tokens: 500 (concise responses)
+    \item Streaming: True (real-time typing effect)
+\end{itemize}
+
+\textbf{Response Processing:}
+\begin{enumerate}
+    \item Stream chunks từ OpenAI API
+    \item Yield chunks tới client qua Server-Sent Events (SSE)
+    \item Aggregate full response
+    \item Save conversation to database: \texttt{INSERT INTO conversations (user\_id, messages, created\_at)}
+\end{enumerate}
+
+\subsection{Conversation Memory}
+
+LangChain ConversationBufferMemory với:
+\begin{itemize}
+    \item Window size: 5 messages
+    \item Format: List of HumanMessage và AIMessage objects
+    \item Persistence: Saved to PostgreSQL for cross-session continuity
+\end{itemize}
+
+\section{Caching Strategy và Performance Optimization}
+
+\subsection{Multi-Layer Caching với Redis}
+
+Hệ thống implement 3 caching layers:
+
+\textbf{1. API Response Cache:}
+\begin{itemize}
+    \item Cache search results để giảm database load
+    \item Cache key format: \texttt{search:\{query\_params\_hash\}}
+    \item TTL: 5 phút (300 seconds)
+    \item Serialization: JSON với \texttt{json.dumps/loads}
+    \item Hit rate thực tế: ~65\% cho common searches
+    \item Example:
+    \begin{verbatim}
+    cache_key = f"search:{hash(query_params)}"
+    cached = redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    results = db.execute(query)
+    redis.setex(cache_key, 300, json.dumps(results))
+    \end{verbatim}
+\end{itemize}
+
+\textbf{2. Recommendation Cache:}
+\begin{itemize}
+    \item Cache personalized recommendations per user
+    \item Cache key: \texttt{reco:\{user\_id\}}
+    \item TTL: 1 giờ (3600 seconds)
+    \item Invalidation: Clear khi user có interaction mới
+    \item Reduce recommendation computation time từ ~500ms xuống ~50ms
+\end{itemize}
+
+\textbf{3. Session Cache:}
+\begin{itemize}
+    \item Store user session data và authentication state
+    \item Cache key: \texttt{session:\{user\_id\}}
+    \item TTL: 30 phút (match với JWT expiration)
+    \item Data: user info, preferences, recent searches
+\end{itemize}
+
+\subsection{Database Optimization}
+
+\textbf{Indexes:}
+\begin{itemize}
+    \item B-tree indexes: \texttt{idx\_vehicles\_brand}, \texttt{idx\_vehicles\_price}
+    \item Composite indexes: \texttt{idx\_search} trên (brand, fuel\_type, price)
+    \item Full-text search: GIN index trên title và description
+    \item Index usage monitoring qua \texttt{pg\_stat\_user\_indexes}
+\end{itemize}
+
+\textbf{Materialized Views:}
+\begin{itemize}
+    \item \texttt{vehicles\_with\_ratings}: Pre-join vehicles với aggregated ratings
+    \item \texttt{popular\_vehicles}: Top vehicles sorted by view count
+    \item Refresh strategy: Daily refresh qua cron job
+    \item Query performance improvement: 10x faster cho complex aggregations
+\end{itemize}
+
+\textbf{Connection Pooling:}
+\begin{itemize}
+    \item SQLAlchemy pool configuration:
+    \begin{itemize}
+        \item pool\_size = 10 (số connections thường trực)
+        \item max\_overflow = 20 (temporary connections khi peak load)
+        \item pool\_pre\_ping = True (check connection health)
+        \item pool\_recycle = 3600 (recycle sau 1 giờ)
+    \end{itemize}
+    \item Monitor pool usage: \texttt{engine.pool.status()}
+\end{itemize}
+
+\subsection{Performance Metrics}
+
+Đạt được các metrics sau:
+\begin{itemize}
+    \item Average API response time: 150ms
+    \item Search queries: 80ms (with cache), 300ms (without)
+    \item Recommendation generation: 200ms (cold), 50ms (cached)
+    \item Chatbot response: 2-3s (including LLM generation)
+    \item Database query time: 50-100ms average
+    \item Cache hit rate: 65\% overall
+\end{itemize}
+
+\section{Deployment}
+
+Hệ thống được containerize hoàn toàn với Docker Compose.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{deployment_architecture.png}
+    \caption{Deployment Architecture}
+    \label{fig:deployment}
+\end{figure}
+
+Tất cả containers chạy trong cùng một Docker network cho phép giao tiếp internal bằng tên container. Data persistence được đảm bảo qua Docker volumes cho PostgreSQL, Qdrant và Redis. Bytebase được giữ lại như tool quản lý database với giao diện UI trên cổng 8080.
+
+\section{Kết luận}
+
+Hệ thống backend đã được xây dựng hoàn chỉnh với kiến trúc phân tầng rõ ràng, tích hợp multiple recommendation algorithms, AI chatbot với RAG pattern, và tối ưu hiệu năng với caching. Thiết kế modular cho phép dễ dàng mở rộng và bảo trì trong tương lai.

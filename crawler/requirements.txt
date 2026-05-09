@@ -1,0 +1,16 @@
+# Cars.com crawler — pinned modern versions (verified 2026-04).
+# Bumps from the legacy notebook:
+#   selenium                3.x  → 4.43.0   Selenium Manager auto-installs
+#                                           Chrome + ChromeDriver; native CDP/BiDi.
+#   webdriver-manager      removed          superseded by Selenium Manager (built-in).
+#   beautifulsoup4    (unpinned) → 4.12.x
+# New essentials (none of these were present before):
+#   httpx + h2     — HTTP/2 client, 10-20x faster than Selenium for static HTML
+#   lxml           — drop-in fast parser for BeautifulSoup
+#   tenacity       — production-grade retry with exponential backoff
+
+selenium==4.43.0
+beautifulsoup4==4.12.3
+lxml==5.3.0
+httpx[http2]==0.27.2
+tenacity==9.0.0
