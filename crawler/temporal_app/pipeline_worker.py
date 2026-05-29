@@ -25,7 +25,11 @@ from temporal_app.activities import (
 )
 from temporal_app.client import connect
 from temporal_app.shared import PIPELINE_TASK_QUEUE
-from temporal_app.workflows import MLWorkflow, TransformWorkflow
+from temporal_app.workflows import (
+    MLWorkflow,
+    TransformWorkflow,
+    WeeklyPipelineWorkflow,
+)
 
 
 async def main() -> None:
@@ -44,7 +48,7 @@ async def main() -> None:
         worker = Worker(
             client,
             task_queue=PIPELINE_TASK_QUEUE,
-            workflows=[TransformWorkflow, MLWorkflow],
+            workflows=[WeeklyPipelineWorkflow, TransformWorkflow, MLWorkflow],
             activities=[
                 load_bronze_activity,
                 ensure_partition_activity,

@@ -1,9 +1,10 @@
 """Manually start one workflow run — smoke-test before enabling schedules.
 
 Usage:
-    python -m temporal_app.scripts.trigger_once crawl     # WeeklyCrawl page 1
-    python -m temporal_app.scripts.trigger_once transform # Transform
-    python -m temporal_app.scripts.trigger_once ml        # ML
+    python -m temporal_app.scripts.trigger_once pipeline  # full chain (recommended)
+    python -m temporal_app.scripts.trigger_once crawl     # WeeklyCrawl page 1 only
+    python -m temporal_app.scripts.trigger_once transform # Transform only
+    python -m temporal_app.scripts.trigger_once ml        # ML only
 """
 from __future__ import annotations
 
@@ -22,10 +23,14 @@ from temporal_app.workflows import (
     TransformWorkflow,
     WeeklyCrawlInput,
     WeeklyCrawlWorkflow,
+    WeeklyPipelineWorkflow,
 )
 
 # job -> (run_fn, arg, label, task_queue)
+# The full pipeline is started on the pipeline queue; it spawns the crawl child
+# onto the crawler queue itself.
 _JOBS = {
+    "pipeline": (WeeklyPipelineWorkflow.run, 1, "pipeline", PIPELINE_TASK_QUEUE),
     "crawl": (WeeklyCrawlWorkflow.run, WeeklyCrawlInput(page=1),
               "crawl", CRAWL_TASK_QUEUE),
     "transform": (TransformWorkflow.run, None, "transform", PIPELINE_TASK_QUEUE),

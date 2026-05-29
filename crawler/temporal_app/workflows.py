@@ -1,12 +1,13 @@
 """Temporal workflows for the car-recsys data platform.
 
-  WeeklyCrawlWorkflow  crawl → scrape → upload for one page (weekly)
-  TransformWorkflow    load_bronze → dbt_build → refresh_matviews
-  MLWorkflow           compute_item_similarity ∥ embed_vehicles (parallel)
+  WeeklyCrawlWorkflow    crawl → scrape → upload for one page
+  TransformWorkflow      load_bronze → dbt_build → refresh_matviews
+  MLWorkflow             compute_item_similarity ∥ embed_vehicles (parallel)
+  WeeklyPipelineWorkflow crawl → transform → ml  (the scheduled chain)
 
-Replaces the three Airflow DAGs. Schedules are configured on the self-hosted
-Temporal server (see scripts/create_schedule.py). Chain crawl → transform → ml
-by enabling that in the schedule script, or trigger each independently.
+Replaces the three Airflow DAGs. The single scheduled entrypoint is
+WeeklyPipelineWorkflow — it runs the three as child workflows in order,
+fail-stop (a failed step aborts the rest). See scripts/create_schedule.py.
 """
 from __future__ import annotations
 
@@ -16,6 +17,9 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+
+with workflow.unsafe.imports_passed_through():
+    from temporal_app.shared import CRAWL_TASK_QUEUE, PIPELINE_TASK_QUEUE
 
 with workflow.unsafe.imports_passed_through():
     from temporal_app.activities import (
@@ -41,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
 @dataclass
 class WeeklyCrawlInput:
     page: int = 1
+    crawl_date: str = ""   # set by WeeklyPipeline so the chain shares one date
 
 
 @dataclass
@@ -81,7 +86,7 @@ class WeeklyCrawlWorkflow:
     async def run(self, inp: WeeklyCrawlInput) -> WeeklyCrawlResult:
         page = inp.page
         workflow.logger.info("WeeklyCrawl starting page=%s", page)
-        crawl_date = workflow.now().strftime("%Y-%m-%d")
+        crawl_date = inp.crawl_date or workflow.now().strftime("%Y-%m-%d")
         act_in = CrawlInput(page=page, crawl_date=crawl_date)
 
         link_res: CrawlLinksResult = await workflow.execute_activity(
@@ -220,4 +225,59 @@ class MLWorkflow:
             similarity_items=sim.items,
             similarity_pairs=sim.pairs,
             embedded=embed.embedded,
+        )
+
+
+# ───────────────────────────── Weekly pipeline ──────────────────────────────
+
+@dataclass
+class WeeklyPipelineResult:
+    crawl_date: str
+    crawl: WeeklyCrawlResult
+    transform: TransformResult
+    ml: MLResult
+
+
+@workflow.defn(name="WeeklyPipeline")
+class WeeklyPipelineWorkflow:
+    """The scheduled chain: crawl → transform → ml, run as child workflows.
+
+    Child workflows route to the right worker by task queue: WeeklyCrawl on the
+    host queue (needs Chrome), Transform + ML on the Dockerized pipeline queue.
+    Fail-stop: a failed child raises and aborts the rest, so transform/ml never
+    run on a failed crawl. All three share the parent's crawl_date so the GCS
+    dt= slice, the bronze load, and the embed watermark agree.
+    """
+
+    @workflow.run
+    async def run(self, page: int = 1) -> WeeklyPipelineResult:
+        crawl_date = workflow.now().strftime("%Y-%m-%d")
+        workflow.logger.info("WeeklyPipeline starting dt=%s page=%s", crawl_date, page)
+
+        # 1. Crawl — on the host worker (Chrome + Xvfb).
+        crawl: WeeklyCrawlResult = await workflow.execute_child_workflow(
+            WeeklyCrawlWorkflow.run,
+            WeeklyCrawlInput(page=page, crawl_date=crawl_date),
+            id=f"weekly-crawl-{crawl_date}",
+            task_queue=CRAWL_TASK_QUEUE,
+        )
+
+        # 2. Transform — on the Docker pipeline worker.
+        transform: TransformResult = await workflow.execute_child_workflow(
+            TransformWorkflow.run,
+            crawl_date,
+            id=f"weekly-transform-{crawl_date}",
+            task_queue=PIPELINE_TASK_QUEUE,
+        )
+
+        # 3. ML — on the Docker pipeline worker.
+        ml: MLResult = await workflow.execute_child_workflow(
+            MLWorkflow.run,
+            crawl_date,
+            id=f"weekly-ml-{crawl_date}",
+            task_queue=PIPELINE_TASK_QUEUE,
+        )
+
+        return WeeklyPipelineResult(
+            crawl_date=crawl_date, crawl=crawl, transform=transform, ml=ml
         )
