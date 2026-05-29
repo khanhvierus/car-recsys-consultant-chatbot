@@ -19,6 +19,7 @@ from temporalio.client import (
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
     ScheduleSpec,
+    ScheduleUpdate,
 )
 
 from temporal_app.client import connect
@@ -38,6 +39,7 @@ async def main() -> None:
             1,                                   # page=1
             id=f"{WORKFLOW_ID_PREFIX}-pipeline",
             task_queue=PIPELINE_TASK_QUEUE,
+            static_summary="Weekly crawl → transform → ml (page 1)",
         ),
         spec=ScheduleSpec(cron_expressions=[CRON]),
     )
@@ -47,7 +49,7 @@ async def main() -> None:
         print(f"Created schedule {SCHEDULE_ID} ({CRON})")
     except ScheduleAlreadyRunningError:
         handle = client.get_schedule_handle(SCHEDULE_ID)
-        await handle.update(lambda _: schedule)
+        await handle.update(lambda _: ScheduleUpdate(schedule=schedule))
         print(f"Updated schedule {SCHEDULE_ID} ({CRON})")
 
 

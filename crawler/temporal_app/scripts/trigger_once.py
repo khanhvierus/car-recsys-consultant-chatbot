@@ -49,7 +49,10 @@ async def main() -> None:
     wf_id = f"{WORKFLOW_ID_PREFIX}-{label}-{uuid.uuid4().hex[:8]}"
     print(f"Starting {job} workflow {wf_id} on {task_queue}")
 
-    start_kwargs = dict(id=wf_id, task_queue=task_queue)
+    start_kwargs = dict(
+        id=wf_id, task_queue=task_queue,
+        static_summary=f"Manual {job} run",
+    )
     if arg is not None:
         handle = await client.start_workflow(run_fn, arg, **start_kwargs)
     else:

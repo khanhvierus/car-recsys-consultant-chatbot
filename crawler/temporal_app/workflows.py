@@ -254,6 +254,21 @@ class WeeklyPipelineWorkflow:
         crawl_date = workflow.now().strftime("%Y-%m-%d")
         workflow.logger.info("WeeklyPipeline starting dt=%s page=%s", crawl_date, page)
 
+        # Running markdown summary, shown in the UI "Details" panel and updated
+        # after each step so progress is readable without digging into History.
+        steps = {
+            "1. Crawl (page %s)" % page: "⏳ running…",
+            "2. Transform": "⬜ pending",
+            "3. ML / embeddings": "⬜ pending",
+        }
+
+        def _render() -> str:
+            lines = [f"### Weekly pipeline — `{crawl_date}`", "", "| Step | Status |", "|---|---|"]
+            lines += [f"| {k} | {v} |" for k, v in steps.items()]
+            return "\n".join(lines)
+
+        workflow.set_current_details(_render())
+
         # 1. Crawl — on the host worker (Chrome + Xvfb).
         crawl: WeeklyCrawlResult = await workflow.execute_child_workflow(
             WeeklyCrawlWorkflow.run,
@@ -261,6 +276,13 @@ class WeeklyPipelineWorkflow:
             id=f"weekly-crawl-{crawl_date}",
             task_queue=CRAWL_TASK_QUEUE,
         )
+        steps["1. Crawl (page %s)" % page] = (
+            f"✅ {crawl.link_count} links · scraped {crawl.detail_done} "
+            f"(fail {crawl.detail_fail}, skip {crawl.detail_skip}) · "
+            f"uploaded {crawl.json_uploaded} json / {crawl.images_uploaded} imgs"
+        )
+        steps["2. Transform"] = "⏳ running…"
+        workflow.set_current_details(_render())
 
         # 2. Transform — on the Docker pipeline worker.
         transform: TransformResult = await workflow.execute_child_workflow(
@@ -269,6 +291,12 @@ class WeeklyPipelineWorkflow:
             id=f"weekly-transform-{crawl_date}",
             task_queue=PIPELINE_TASK_QUEUE,
         )
+        steps["2. Transform"] = (
+            f"✅ bronze +{transform.bronze_inserted} inserted "
+            f"({transform.bronze_scanned} scanned) → dbt + matviews"
+        )
+        steps["3. ML / embeddings"] = "⏳ running…"
+        workflow.set_current_details(_render())
 
         # 3. ML — on the Docker pipeline worker.
         ml: MLResult = await workflow.execute_child_workflow(
@@ -277,6 +305,11 @@ class WeeklyPipelineWorkflow:
             id=f"weekly-ml-{crawl_date}",
             task_queue=PIPELINE_TASK_QUEUE,
         )
+        steps["3. ML / embeddings"] = (
+            f"✅ similarity {ml.similarity_items} items / {ml.similarity_pairs} pairs · "
+            f"embedded {ml.embedded} vehicles"
+        )
+        workflow.set_current_details(_render())
 
         return WeeklyPipelineResult(
             crawl_date=crawl_date, crawl=crawl, transform=transform, ml=ml
