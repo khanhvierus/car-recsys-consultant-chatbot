@@ -14,7 +14,10 @@ with ranked as (
         gcs_path,
         row_number() over (
             partition by vin
-            order by ingested_at desc
+            -- crawl_date is the true crawl recency; ingested_at only breaks ties
+            -- within the same crawl day (and guards a backfill loading old data
+            -- after new data — DB-insert time must NOT decide "latest").
+            order by crawl_date desc nulls last, ingested_at desc
         ) as rn
     from {{ source('bronze', 'raw_listings') }}
     where vin is not null
