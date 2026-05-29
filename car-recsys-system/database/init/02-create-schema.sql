@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS bronze.raw_listings (
     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     source          TEXT NOT NULL DEFAULT 'incremental',  -- 'initial' | 'incremental'
     run_id          TEXT,                          -- Temporal workflow run that loaded this row
-    CONSTRAINT uq_raw_listings_file_hash UNIQUE (file_hash)
+    CONSTRAINT uq_raw_listings_file_hash UNIQUE (file_hash),
+    CONSTRAINT chk_raw_listings_source CHECK (source IN ('initial', 'incremental'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_raw_listings_vin        ON bronze.raw_listings (vin);
