@@ -21,7 +21,16 @@ fct_model_review · dim_listing_image
 vehicles · car_models · sellers · reviews · vehicle_features · vehicle_images
 ```
 
-`snapshots/snp_listing_price` — SCD-2 price history (silver schema).
+Price/mileage change history lives in `gold/vehicle_price_history` — an
+append-only change-event log (one row per detected change), written into a
+Postgres table RANGE-partitioned by `crawl_date`. (An earlier SCD-2 snapshot
+approach was dropped in favor of this lighter model.)
+
+> **Editing models:** the Temporal `pipeline-worker` image BAKES this dbt
+> project (`COPY car-recsys-system/dbt` in `crawler/Dockerfile.pipeline`). After
+> changing any model, rebuild the image —
+> `docker build -f crawler/Dockerfile.pipeline -t car-pipeline-worker:latest .`
+> from the repo root — or the worker will run a stale copy.
 
 ## Grain rule (important)
 
@@ -40,7 +49,7 @@ export DBT_PG_HOST=localhost DBT_PG_PORT=5432 \
        DBT_PG_USER=admin DBT_PG_PASSWORD=admin123 DBT_PG_DBNAME=car_recsys
 
 dbt parse  --profiles-dir .     # validate project (no DB needed)
-dbt build  --profiles-dir .     # run models + snapshot + tests
+dbt build  --profiles-dir .     # run models + tests
 dbt docs generate --profiles-dir .   # lineage graph
 ```
 
