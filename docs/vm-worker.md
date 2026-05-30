@@ -108,11 +108,19 @@ GCS_BUCKET=incremental_raw
 GCP_PROJECT_ID=cobalt-bond-494609-a6
 
 OPENAI_API_KEY=<OpenAI key, để trống nếu chưa dùng>
-QDRANT_URL=
+# Qdrant Cloud (embed_vehicles). Để trống QDRANT_URL → bước embed tự skip.
+QDRANT_URL=https://<cluster-id>.<region>.gcp.cloud.qdrant.io:6333
+QDRANT_API_KEY=<Qdrant Cloud API key>
+QDRANT_COLLECTION=car_chatbot_vectors
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 OPENAI_EMBEDDING_DIM=3072
 EOF
 ```
+
+> **Qdrant**: image (commit `91cd2f0`) hỗ trợ `QDRANT_API_KEY` cho Qdrant Cloud.
+> Nếu `QDRANT_URL` rỗng → `embed_vehicles` skip (không fail). Endpoint Qdrant
+> Cloud thêm `:6333` (REST). Nhớ cập nhật image trên VM (`docker pull` + recreate)
+> sau khi đổi worker.env.
 
 > **⚠️ Thay password ở 2 CHỖ:** cả `WAREHOUSE_DSN` (dùng bởi load_bronze /
 > ensure_partition / refresh_matviews qua psycopg2) VÀ `DBT_PG_PASSWORD` (dùng
