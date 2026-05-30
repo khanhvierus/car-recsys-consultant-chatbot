@@ -14,3 +14,4 @@ Sơ đồ kiến trúc Car Recommendation System.
 | 5 | Chatbot RAG hybrid | [diagrams.md](diagrams.md#5-chatbot--rag-hybrid-retrieval) |
 | 6 | **Silver ERD** (3NF, đầy đủ cột + PK/FK) | [diagrams.md](diagrams.md#6-silver--erd-3nf-dimensional) |
 | 7 | **Gold ERD** (app marts, vehicle_id) | [diagrams.md](diagrams.md#7-gold--erd-app-marts-denormalized) |
+| 8 | **Reco / App-domain ERD** (users · interactions · item_similarity · chat · Qdrant) | [diagrams.md](diagrams.md#8-recommendation--app-domain-erd) |

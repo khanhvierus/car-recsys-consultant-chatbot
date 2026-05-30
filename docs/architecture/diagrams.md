@@ -351,3 +351,104 @@ erDiagram
     text    review_text
   }
 ```
+
+---
+
+## 8. Recommendation / App-domain ERD
+
+Khác với marts dbt (#7) — đây là các bảng **app ghi runtime** + **ML precompute** +
+**Qdrant vector**, là input/output của hệ thống đề xuất.
+
+- `users · user_interactions · user_favorites · user_searches · chat_*` — backend ghi (có FK cứng tới `users`).
+- `item_similarity` — **ML workflow** precompute (item-item CF), reco đọc, không fit runtime.
+- `mv_popular_vehicles` — matview (cold-start fallback).
+- `vehicle_id` (TEXT = VIN) nối tới `gold.vehicles` nhưng **không FK cứng** (vehicles bị dbt rebuild).
+
+```mermaid
+erDiagram
+  users ||--o{ user_interactions : "tracks"
+  users ||--o{ user_favorites    : "saves"
+  users ||--o{ user_searches     : "searches"
+  users ||--o{ chat_sessions     : "owns (NULL=guest)"
+  chat_sessions ||--o{ chat_messages : "has turns"
+  vehicles ||--o{ user_interactions : "vehicle_id (no FK)"
+  vehicles ||--o{ item_similarity   : "vehicle_id / neighbor_id"
+
+  users {
+    uuid    id PK
+    text    username UK
+    text    email UK
+    text    hashed_password
+    bool    is_active
+  }
+  user_interactions {
+    int     id PK
+    uuid    user_id FK
+    text    vehicle_id "VIN, no FK"
+    text    interaction_type "view|click|compare|save|favorite|contact|inquiry"
+    numeric interaction_score
+    jsonb   extra_data
+    timestamp created_at
+  }
+  user_favorites {
+    int     id PK
+    uuid    user_id FK
+    text    vehicle_id "VIN"
+  }
+  user_searches {
+    int     id PK
+    uuid    user_id FK
+    text    search_query
+    jsonb   filters
+    int     results_count
+  }
+  chat_sessions {
+    uuid    id PK
+    uuid    user_id FK "NULL for guests"
+    text    session_token
+    text    title
+  }
+  chat_messages {
+    int     id PK
+    uuid    session_id FK
+    text    role "user|assistant|system"
+    text    content
+    jsonb   vehicles "cited cards"
+  }
+  item_similarity {
+    text    vehicle_id PK "VIN"
+    text    neighbor_id PK "VIN"
+    numeric score
+    int     rank
+    timestamp computed_at
+  }
+  vehicles {
+    text    vehicle_id PK "= VIN (dbt mart)"
+  }
+```
+
+### Hệ thống đề xuất dùng các store này thế nào
+
+```mermaid
+flowchart LR
+  interactions["gold.user_interactions<br/>(app ghi: view/click/save...)"]:::store
+  itemsim["gold.item_similarity<br/>(ML precompute CF)"]:::store
+  popmv["gold.mv_popular_vehicles<br/>(matview)"]:::store
+  qdrant["Qdrant car-vectors<br/>point_id=uuid5(vin)<br/>payload: brand/price/fuel/rating"]:::vec
+  vehicles["gold.vehicles"]:::gold
+
+  interactions -->|"ML: cosine CF"| itemsim
+  vehicles -->|"ML: embed"| qdrant
+
+  itemsim --> collab["CollaborativeRecaller"]:::recall
+  vehicles --> content["ContentRecaller"]:::recall
+  qdrant --> vecr["VectorRecaller"]:::recall
+  popmv --> popr["PopularityRecaller"]:::recall
+  collab & content & vecr & popr --> ranker["Ranker → MMR → top-K"]:::rank
+
+  classDef store fill:#c3fae8,stroke:#06b6d4,color:#000
+  classDef vec fill:#eebefa,stroke:#ec4899,color:#000
+  classDef gold fill:#b2f2bb,stroke:#22c55e,color:#000
+  classDef recall fill:#d0bfff,stroke:#8b5cf6,color:#000
+  classDef rank fill:#ffd8a8,stroke:#f59e0b,color:#000
+```
