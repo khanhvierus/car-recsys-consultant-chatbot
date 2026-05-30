@@ -249,9 +249,15 @@ def embed_vehicles_activity(crawl_date: str = "") -> EmbedResult:
         activity.logger.warning("OPENAI_API_KEY unset — skipping embedding")
         return EmbedResult(embedded=0, skipped=True)
 
+    qdrant_url = os.environ.get("QDRANT_URL", "")
+    if not qdrant_url:
+        activity.logger.warning("QDRANT_URL unset — skipping embedding")
+        return EmbedResult(embedded=0, skipped=True)
+
     result = embed_vehicles(
         warehouse_dsn=_require_env("WAREHOUSE_DSN"),
-        qdrant_url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+        qdrant_url=qdrant_url,
+        qdrant_api_key=os.environ.get("QDRANT_API_KEY") or None,
         openai_api_key=api_key,
         collection=os.environ.get("QDRANT_COLLECTION", "car_chatbot_vectors"),
         embedding_model=os.environ.get(

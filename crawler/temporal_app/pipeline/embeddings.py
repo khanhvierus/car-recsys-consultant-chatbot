@@ -70,6 +70,7 @@ def embed_vehicles(
     collection: str,
     embedding_model: str,
     embedding_dim: int,
+    qdrant_api_key: Optional[str] = None,
     since: Optional[str] = None,
     since_date: Optional[str] = None,
     limit: Optional[int] = None,
@@ -90,7 +91,8 @@ def embed_vehicles(
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, PointStruct, VectorParams
 
-    qdrant = QdrantClient(url=qdrant_url)
+    # Qdrant Cloud requires an api_key; self-hosted local doesn't (pass None).
+    qdrant = QdrantClient(url=qdrant_url, api_key=qdrant_api_key or None)
     existing = {c.name for c in qdrant.get_collections().collections}
     if collection not in existing:
         qdrant.create_collection(
