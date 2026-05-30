@@ -1,0 +1,42 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# --- dbt ---
+car-recsys-system/dbt/target/
+car-recsys-system/dbt/logs/
+car-recsys-system/dbt/dbt_packages/
+
+# --- Airflow runtime ---
+airflow/logs/
+airflow/data/
+airflow/.env
+
+# --- crawler local output ---
+car_links/
+raw_data/
+html_cache/
+katana_test/
+
+# --- secrets / env ---
+.env
+*.env.local
+**/application_default_credentials.json
+*-sa.json
+
+# --- node / frontend ---
+node_modules/
+.next/
+dist/
+
+# --- editor / OS ---
+.DS_Store
+.idea/
+*.swp

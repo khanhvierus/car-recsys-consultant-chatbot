@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: vehicles
+    description: App-facing listing mart (one row per VIN). Replaces raw.used_vehicles.
+    columns:
+      - name: vehicle_id
+        description: VIN — primary key the FastAPI backend joins on.
+        tests: [not_null, unique]
+      - name: vin
+        tests: [not_null, unique]
+      - name: new_used
+        tests:
+          - accepted_values:
+              values: ["New", "Used", "Certified"]
+              config: {severity: warn}
+      - name: source
+        description: "'initial' (Colab bulk load) or 'incremental' (weekly crawl)."
+      - name: first_seen_date
+        description: First crawl_date this VIN was seen (preserved on merge).
+      - name: last_updated_date
+        description: Most recent crawl_date this VIN was (re)crawled.
+
+  - name: car_models
+    description: App-facing car-model mart with listing/review aggregates.
+    columns:
+      - name: car_model
+        tests: [not_null, unique]
+
+  - name: sellers
+    description: App-facing dealer mart with inventory aggregates.
+    columns:
+      - name: seller_key
+        tests: [not_null, unique]
+
+  - name: reviews
+    description: App-facing consumer-review mart.
+    columns:
+      - name: review_sk
+        tests: [not_null, unique]
+
+  - name: vehicle_features
+    description: Denormalized listing features (vehicle_id, category, name).
+    columns:
+      - name: vehicle_id
+        tests: [not_null]
+
+  - name: vehicle_images
+    description: Listing images (vehicle_id, image_order, image_url).
+    columns:
+      - name: vehicle_id
+        tests: [not_null]
+
+  - name: vehicle_price_history
+    description: >
+      Append-only change-event log of price/mileage/status per VIN, partitioned
+      by crawl_date in Postgres. One row per detected change.
+    columns:
+      - name: vin
+        tests: [not_null]
+      - name: crawl_date
+        tests: [not_null]

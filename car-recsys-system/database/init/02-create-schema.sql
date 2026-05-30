@@ -1,210 +1,228 @@
--- ================================================
--- Car Recommendation System - Complete Schema
--- ================================================
+-- ============================================================================
+-- Car Recommendation System — Database Schema (medallion architecture)
+-- ============================================================================
+-- Layers:
+--   bronze : raw crawled JSON landed verbatim (JSONB). Append-only, idempotent.
+--   silver : 3NF dimensional model — CREATED AND OWNED BY dbt (not here).
+--   gold   : app-facing marts (dbt) + user-domain tables (app-written, here).
+--
+-- This init script creates ONLY:
+--   * the bronze landing table
+--   * empty silver / gold schemas (dbt fills silver + the gold marts)
+--   * gold user-domain tables the FastAPI app writes to directly
+--
+-- The denormalized raw.used_vehicles (55-column) table and the 7 CSV tables
+-- are intentionally GONE — replaced by bronze.raw_listings + dbt models.
+-- ============================================================================
 
--- Create schemas
-CREATE SCHEMA IF NOT EXISTS raw;
-CREATE SCHEMA IF NOT EXISTS silver;
-CREATE SCHEMA IF NOT EXISTS gold;
+CREATE SCHEMA IF NOT EXISTS bronze;
+CREATE SCHEMA IF NOT EXISTS silver;   -- populated by dbt
+CREATE SCHEMA IF NOT EXISTS gold;     -- dbt marts + app tables below
 
--- ================================================
--- RAW LAYER - Direct from CSV files
--- ================================================
+-- ============================================================================
+-- BRONZE LAYER — raw JSON landing
+-- ============================================================================
+-- One row per crawled JSON file. Append-only: a re-crawl of the same VIN with
+-- changed content lands a new row (different file_hash). The "current" version
+-- per VIN is resolved downstream in dbt staging (DISTINCT ON ... ingested_at).
 
--- Vehicles table (main data)
-CREATE TABLE IF NOT EXISTS raw.used_vehicles (
-    vehicle_id TEXT PRIMARY KEY,
-    stock_number TEXT,
-    condition TEXT,
-    title TEXT,
-    brand TEXT,
-    car_model TEXT,
-    car_name TEXT,
-    price NUMERIC,
-    monthly_payment NUMERIC,
-    mileage NUMERIC,
-    mileage_str TEXT,
-    exterior_color TEXT,
-    interior_color TEXT,
-    drivetrain TEXT,
-    mpg TEXT,
-    fuel_type TEXT,
-    transmission TEXT,
-    engine TEXT,
-    vin TEXT UNIQUE,
-    accidents_damage TEXT,
-    one_owner BOOLEAN,
-    personal_use_only BOOLEAN,
-    warranty TEXT,
-    car_rating NUMERIC,
-    percentage_recommend NUMERIC,
-    comfort_rating NUMERIC,
-    interior_rating NUMERIC,
-    performance_rating NUMERIC,
-    value_rating NUMERIC,
-    exterior_rating NUMERIC,
-    reliability_rating NUMERIC,
-    vehicle_url TEXT,
-    car_review_link TEXT,
-    car_link TEXT,
-    source_file TEXT,
-    total_images INTEGER,
-    has_ratings BOOLEAN,
-    data_complete BOOLEAN,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS bronze.raw_listings (
+    raw_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    file_hash       TEXT NOT NULL,                 -- sha256 of file bytes — idempotency key
+    gcs_path        TEXT NOT NULL,                 -- gs://incremental_raw/dt=YYYY-MM-DD/<page>/<f>.json
+    page_number     INTEGER,                       -- parsed from the GCS path
+    crawl_date      DATE,                          -- dt= partition lifted from the path
+    vin             TEXT,                          -- payload->post->basic_desc->VIN, lifted out
+    car_model_slug  TEXT,                          -- payload->car->car_model, lifted out
+    payload         JSONB NOT NULL,                -- the entire crawled file, untouched
+    crawled_at      TIMESTAMPTZ,                   -- payload->>'datetime'
+    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    source          TEXT NOT NULL DEFAULT 'incremental',  -- 'initial' | 'incremental'
+    run_id          TEXT,                          -- Temporal workflow run that loaded this row
+    CONSTRAINT uq_raw_listings_file_hash UNIQUE (file_hash),
+    CONSTRAINT chk_raw_listings_source CHECK (source IN ('initial', 'incremental'))
 );
 
--- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_vehicles_brand ON raw.used_vehicles(brand);
-CREATE INDEX IF NOT EXISTS idx_vehicles_model ON raw.used_vehicles(car_model);
-CREATE INDEX IF NOT EXISTS idx_vehicles_price ON raw.used_vehicles(price);
-CREATE INDEX IF NOT EXISTS idx_vehicles_condition ON raw.used_vehicles(condition);
-CREATE INDEX IF NOT EXISTS idx_vehicles_vin ON raw.used_vehicles(vin);
+CREATE INDEX IF NOT EXISTS idx_raw_listings_vin        ON bronze.raw_listings (vin);
+CREATE INDEX IF NOT EXISTS idx_raw_listings_model      ON bronze.raw_listings (car_model_slug);
+CREATE INDEX IF NOT EXISTS idx_raw_listings_ingested   ON bronze.raw_listings (ingested_at);
+CREATE INDEX IF NOT EXISTS idx_raw_listings_crawl_date ON bronze.raw_listings (crawl_date);
+CREATE INDEX IF NOT EXISTS idx_raw_listings_payload    ON bronze.raw_listings USING GIN (payload jsonb_path_ops);
 
--- ================================================
--- GOLD LAYER - Application tables
--- ================================================
+COMMENT ON TABLE bronze.raw_listings IS 'Raw crawled cars.com JSON, one row per file. Append-only, idempotent via file_hash.';
 
--- Users table
+-- ============================================================================
+-- GOLD LAYER — user-domain tables (written by the FastAPI app)
+-- ============================================================================
+-- NOTE: vehicle_id is a plain TEXT VIN with NO foreign key. The gold.vehicles
+-- mart is DROP/CREATEd by dbt on every full-refresh; a cross-schema FK into it
+-- would break the rebuild. Referential integrity is enforced instead by the
+-- dbt test tests/assert_no_orphan_interactions.sql.
+
 CREATE TABLE IF NOT EXISTS gold.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT UNIQUE NOT NULL,
-    email TEXT UNIQUE NOT NULL,
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username        TEXT UNIQUE NOT NULL,
+    email           TEXT UNIQUE NOT NULL,
     hashed_password TEXT NOT NULL,
-    full_name TEXT,
-    phone TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_verified BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    full_name       TEXT,
+    phone           TEXT,
+    is_active       BOOLEAN DEFAULT TRUE,
+    is_verified     BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW()
 );
 
--- User interactions (for recommendations)
 CREATE TABLE IF NOT EXISTS gold.user_interactions (
-    id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES gold.users(id) ON DELETE CASCADE,
-    vehicle_id TEXT REFERENCES raw.used_vehicles(vehicle_id) ON DELETE CASCADE,
-    interaction_type TEXT NOT NULL, -- view, click, favorite, compare, contact
-    session_id TEXT,
+    id                SERIAL PRIMARY KEY,
+    user_id           UUID REFERENCES gold.users(id) ON DELETE CASCADE,
+    vehicle_id        TEXT NOT NULL,                       -- VIN, no FK (see note above)
+    interaction_type  TEXT NOT NULL,                       -- view|click|compare|save|favorite|contact|inquiry
+    session_id        TEXT,
     interaction_score NUMERIC DEFAULT 1.0,
-    extra_data JSONB,
-    created_at TIMESTAMP DEFAULT NOW()
+    extra_data        JSONB,
+    created_at        TIMESTAMP DEFAULT NOW()
 );
 
--- User favorites (quick access)
 CREATE TABLE IF NOT EXISTS gold.user_favorites (
-    id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES gold.users(id) ON DELETE CASCADE,
-    vehicle_id TEXT REFERENCES raw.used_vehicles(vehicle_id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(user_id, vehicle_id)
+    id          SERIAL PRIMARY KEY,
+    user_id     UUID REFERENCES gold.users(id) ON DELETE CASCADE,
+    vehicle_id  TEXT NOT NULL,                              -- VIN, no FK
+    created_at  TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, vehicle_id)
 );
 
--- User searches (search history)
 CREATE TABLE IF NOT EXISTS gold.user_searches (
-    id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES gold.users(id) ON DELETE CASCADE,
-    search_query TEXT,
-    filters JSONB,
+    id            SERIAL PRIMARY KEY,
+    user_id       UUID REFERENCES gold.users(id) ON DELETE CASCADE,
+    search_query  TEXT,
+    filters       JSONB,
     results_count INTEGER,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at    TIMESTAMP DEFAULT NOW()
 );
 
--- Create indexes for gold layer
-CREATE INDEX IF NOT EXISTS idx_interactions_user ON gold.user_interactions(user_id);
+-- Chatbot persistence — proper tables (was created on-the-fly in chat.py before).
+CREATE TABLE IF NOT EXISTS gold.chat_sessions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID REFERENCES gold.users(id) ON DELETE CASCADE,  -- NULL for guests
+    session_token TEXT,
+    title       TEXT,
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS gold.chat_messages (
+    id          SERIAL PRIMARY KEY,
+    session_id  UUID REFERENCES gold.chat_sessions(id) ON DELETE CASCADE,
+    role        TEXT NOT NULL,                              -- user|assistant|system
+    content     TEXT NOT NULL,
+    vehicles    JSONB,                                      -- vehicle cards cited in the reply
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+-- Precomputed item-item collaborative-filtering neighbors.
+-- Refreshed by the car_recsys_ml Airflow DAG (TRUNCATE + INSERT); read by the
+-- recommendation engine so it never has to fit a model in-request.
+CREATE TABLE IF NOT EXISTS gold.item_similarity (
+    vehicle_id   TEXT NOT NULL,
+    neighbor_id  TEXT NOT NULL,
+    score        NUMERIC NOT NULL,
+    rank         INTEGER NOT NULL,
+    computed_at  TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (vehicle_id, neighbor_id)
+);
+
+-- ----------------------------------------------------------------------------
+-- Indexes
+-- ----------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_interactions_user    ON gold.user_interactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_interactions_vehicle ON gold.user_interactions(vehicle_id);
-CREATE INDEX IF NOT EXISTS idx_interactions_type ON gold.user_interactions(interaction_type);
+CREATE INDEX IF NOT EXISTS idx_interactions_type    ON gold.user_interactions(interaction_type);
 CREATE INDEX IF NOT EXISTS idx_interactions_created ON gold.user_interactions(created_at);
 
-CREATE INDEX IF NOT EXISTS idx_favorites_user ON gold.user_favorites(user_id);
-CREATE INDEX IF NOT EXISTS idx_favorites_vehicle ON gold.user_favorites(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_favorites_user       ON gold.user_favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_favorites_vehicle    ON gold.user_favorites(vehicle_id);
 
-CREATE INDEX IF NOT EXISTS idx_searches_user ON gold.user_searches(user_id);
-CREATE INDEX IF NOT EXISTS idx_searches_created ON gold.user_searches(created_at);
+CREATE INDEX IF NOT EXISTS idx_searches_user        ON gold.user_searches(user_id);
+CREATE INDEX IF NOT EXISTS idx_searches_created     ON gold.user_searches(created_at);
 
--- ================================================
--- VIEWS for easy querying
--- ================================================
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON gold.chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user    ON gold.chat_sessions(user_id);
 
--- View: Vehicle with ratings
-CREATE OR REPLACE VIEW gold.vehicles_with_ratings AS
-SELECT 
-    v.*,
-    ROUND(AVG(COALESCE(v.comfort_rating, v.interior_rating, v.performance_rating, v.value_rating, v.exterior_rating, v.reliability_rating)), 2) as avg_rating,
-    COUNT(DISTINCT ui.id) as interaction_count,
-    COUNT(DISTINCT uf.id) as favorite_count
-FROM raw.used_vehicles v
-LEFT JOIN gold.user_interactions ui ON v.vehicle_id = ui.vehicle_id
-LEFT JOIN gold.user_favorites uf ON v.vehicle_id = uf.vehicle_id
-GROUP BY v.vehicle_id;
+CREATE INDEX IF NOT EXISTS idx_item_similarity_vehicle ON gold.item_similarity(vehicle_id);
 
--- View: Popular vehicles
-CREATE OR REPLACE VIEW gold.popular_vehicles AS
-SELECT 
-    v.vehicle_id,
-    v.title,
-    v.brand,
-    v.car_model,
-    v.price,
-    v.vehicle_url,
-    COUNT(DISTINCT ui.id) as total_interactions,
-    COUNT(DISTINCT CASE WHEN ui.interaction_type = 'favorite' THEN ui.id END) as favorites,
-    COUNT(DISTINCT CASE WHEN ui.interaction_type = 'view' THEN ui.id END) as views
-FROM raw.used_vehicles v
-LEFT JOIN gold.user_interactions ui ON v.vehicle_id = ui.vehicle_id
-GROUP BY v.vehicle_id, v.title, v.brand, v.car_model, v.price, v.vehicle_url
-ORDER BY total_interactions DESC;
-
--- ================================================
--- Functions
--- ================================================
-
--- Function: Update updated_at timestamp
+-- ============================================================================
+-- Functions & triggers
+-- ============================================================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE 'plpgsql';
 
--- Triggers for updated_at
 DROP TRIGGER IF EXISTS update_users_updated_at ON gold.users;
-CREATE TRIGGER update_users_updated_at 
-    BEFORE UPDATE ON gold.users 
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON gold.users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_vehicles_updated_at ON raw.used_vehicles;
-CREATE TRIGGER update_vehicles_updated_at 
-    BEFORE UPDATE ON raw.used_vehicles 
+DROP TRIGGER IF EXISTS update_chat_sessions_updated_at ON gold.chat_sessions;
+CREATE TRIGGER update_chat_sessions_updated_at
+    BEFORE UPDATE ON gold.chat_sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- ================================================
--- Grant permissions
--- ================================================
+-- ============================================================================
+-- GOLD price/mileage history — change-event log, partitioned by crawl_date.
+-- dbt's gold.vehicle_price_history model APPENDS into this parent; Postgres
+-- routes each row to the monthly partition. Partitions are created on demand by
+-- gold.ensure_price_history_partition(), called by the Temporal ensure_partition
+-- activity before dbt runs.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS gold.vehicle_price_history (
+    vin           TEXT        NOT NULL,
+    price         NUMERIC,
+    mileage       INTEGER,
+    status        TEXT,
+    crawl_date    DATE        NOT NULL,
+    inserted_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+) PARTITION BY RANGE (crawl_date);
 
--- Grant all permissions to admin
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA raw TO admin;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA silver TO admin;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gold TO admin;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gold TO admin;
+CREATE INDEX IF NOT EXISTS idx_price_history_vin_date
+    ON gold.vehicle_price_history (vin, crawl_date);
 
--- Grant select on views
-GRANT SELECT ON gold.vehicles_with_ratings TO admin;
-GRANT SELECT ON gold.popular_vehicles TO admin;
+-- Idempotently create the monthly partition covering `d`.
+CREATE OR REPLACE FUNCTION gold.ensure_price_history_partition(d DATE)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    start_m DATE := date_trunc('month', d)::date;
+    end_m   DATE := (date_trunc('month', d) + interval '1 month')::date;
+    part    TEXT := format('vehicle_price_history_%s', to_char(start_m, 'YYYY_MM'));
+BEGIN
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS gold.%I PARTITION OF gold.vehicle_price_history '
+        'FOR VALUES FROM (%L) TO (%L)', part, start_m, end_m
+    );
+END $$;
 
--- ================================================
--- Sample data for testing (optional)
--- ================================================
+-- ============================================================================
+-- Permissions
+-- ============================================================================
+GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA bronze TO admin;
+GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA silver TO admin;
+GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA gold   TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA bronze TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gold   TO admin;
+-- dbt creates objects later; make sure admin keeps access to them too.
+ALTER DEFAULT PRIVILEGES IN SCHEMA silver GRANT ALL ON TABLES TO admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA gold   GRANT ALL ON TABLES TO admin;
 
--- Insert a test user
-INSERT INTO gold.users (email, hashed_password, full_name) 
-VALUES ('test@example.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYzS0MdKJae', 'Test User')
-ON CONFLICT (email) DO NOTHING;
-
-COMMENT ON TABLE raw.used_vehicles IS 'Raw vehicle data from CSV files';
-COMMENT ON TABLE gold.users IS 'Registered users';
-COMMENT ON TABLE gold.user_interactions IS 'User interaction events for recommendations';
-COMMENT ON TABLE gold.user_favorites IS 'User favorite vehicles';
-COMMENT ON TABLE gold.user_searches IS 'User search history';
+-- ============================================================================
+-- Comments
+-- ============================================================================
+COMMENT ON TABLE gold.users             IS 'Registered users.';
+COMMENT ON TABLE gold.user_interactions IS 'User interaction events feeding the recommender.';
+COMMENT ON TABLE gold.user_favorites    IS 'User favorite vehicles (VIN).';
+COMMENT ON TABLE gold.user_searches     IS 'User search history.';
+COMMENT ON TABLE gold.chat_sessions     IS 'Chatbot conversation sessions.';
+COMMENT ON TABLE gold.chat_messages     IS 'Chatbot messages within a session.';
+COMMENT ON TABLE gold.item_similarity   IS 'Precomputed item-item CF neighbors (refreshed by car_recsys_ml DAG).';

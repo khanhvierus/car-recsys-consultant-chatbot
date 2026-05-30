@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    description: Raw crawled cars.com JSON landed by the Temporal load_bronze activity.
+    tables:
+      - name: raw_listings
+        description: One row per crawled JSON file; append-only, deduped downstream.
+        loaded_at_field: ingested_at
+        freshness:
+          warn_after: {count: 8, period: day}
+          error_after: {count: 16, period: day}
+        columns:
+          - name: file_hash
+            tests: [not_null, unique]
+          - name: payload
+            tests: [not_null]
+
+  - name: app
+    schema: gold
+    description: User-domain tables written by the FastAPI app (read-only to dbt).
+    tables:
+      - name: user_interactions
+      - name: user_favorites
+      - name: users

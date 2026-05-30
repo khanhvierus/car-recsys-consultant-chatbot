@@ -93,7 +93,7 @@ async def search_vehicles(
     where_clause = " AND ".join(conditions)
     
     # Get total count
-    count_sql = f"SELECT COUNT(*) FROM raw.used_vehicles WHERE {where_clause}"
+    count_sql = f"SELECT COUNT(*) FROM gold.vehicles WHERE {where_clause}"
     total = db.execute(text(count_sql), params).scalar()
     
     # Build ORDER BY
@@ -127,12 +127,12 @@ async def search_vehicles(
             v.vehicle_url,
             v.condition,
             COALESCE(
-                (SELECT image_url FROM raw.vehicle_images vi 
+                (SELECT image_url FROM gold.vehicle_images vi 
                  WHERE vi.vehicle_id = v.vehicle_id 
                  ORDER BY vi.id LIMIT 1),
                 ''
             ) as image_url
-        FROM raw.used_vehicles v
+        FROM gold.vehicles v
         WHERE {where_clause}
         ORDER BY {sort_column} {order} NULLS LAST
         LIMIT :limit OFFSET :offset

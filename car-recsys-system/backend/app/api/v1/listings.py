@@ -48,7 +48,7 @@ async def get_listing(vehicle_id: str, db: Session = Depends(get_db)):
             v.reliability_rating,
             v.vehicle_url,
             v.total_images
-        FROM raw.used_vehicles v
+        FROM gold.vehicles v
         WHERE v.vehicle_id = :vehicle_id
     """)
     
@@ -63,7 +63,7 @@ async def get_listing(vehicle_id: str, db: Session = Depends(get_db)):
     # Get vehicle images
     images_query = text("""
         SELECT image_url 
-        FROM raw.vehicle_images 
+        FROM gold.vehicle_images 
         WHERE vehicle_id = :vehicle_id 
         ORDER BY id
         LIMIT 20
@@ -74,7 +74,7 @@ async def get_listing(vehicle_id: str, db: Session = Depends(get_db)):
     # Get vehicle features
     features_query = text("""
         SELECT feature_name 
-        FROM raw.vehicle_features 
+        FROM gold.vehicle_features 
         WHERE vehicle_id = :vehicle_id
     """)
     features_result = db.execute(features_query, {'vehicle_id': vehicle_id})
@@ -142,12 +142,12 @@ async def get_listings(
             v.vehicle_url,
             v.condition,
             COALESCE(
-                (SELECT image_url FROM raw.vehicle_images vi 
+                (SELECT image_url FROM gold.vehicle_images vi 
                  WHERE vi.vehicle_id = v.vehicle_id 
                  ORDER BY vi.id LIMIT 1),
                 ''
             ) as image_url
-        FROM raw.used_vehicles v
+        FROM gold.vehicles v
         WHERE v.title IS NOT NULL
         ORDER BY v.car_rating DESC NULLS LAST, v.created_at DESC
         LIMIT :limit OFFSET :offset
@@ -188,7 +188,7 @@ async def get_similar_vehicles_simple(
     """
     # Get the reference vehicle
     ref_query = text("""
-        SELECT brand, price FROM raw.used_vehicles WHERE vehicle_id = :id
+        SELECT brand, price FROM gold.vehicles WHERE vehicle_id = :id
     """)
     ref_result = db.execute(ref_query, {'id': vehicle_id}).fetchone()
     
@@ -218,12 +218,12 @@ async def get_similar_vehicles_simple(
             v.vehicle_url,
             v.condition,
             COALESCE(
-                (SELECT image_url FROM raw.vehicle_images vi 
+                (SELECT image_url FROM gold.vehicle_images vi 
                  WHERE vi.vehicle_id = v.vehicle_id 
                  ORDER BY vi.id LIMIT 1),
                 ''
             ) as image_url
-        FROM raw.used_vehicles v
+        FROM gold.vehicles v
         WHERE v.vehicle_id != :vehicle_id
           AND v.brand = :brand
           AND v.price BETWEEN :price_min AND :price_max
@@ -265,27 +265,27 @@ async def get_filters(db: Session = Depends(get_db)):
     """Get available filter options"""
     
     # Get unique brands
-    brands_query = text("SELECT DISTINCT brand FROM raw.used_vehicles WHERE brand IS NOT NULL ORDER BY brand")
+    brands_query = text("SELECT DISTINCT brand FROM gold.vehicles WHERE brand IS NOT NULL ORDER BY brand")
     brands = [row[0] for row in db.execute(brands_query)]
     
     # Get unique fuel types
-    fuel_query = text("SELECT DISTINCT fuel_type FROM raw.used_vehicles WHERE fuel_type IS NOT NULL ORDER BY fuel_type")
+    fuel_query = text("SELECT DISTINCT fuel_type FROM gold.vehicles WHERE fuel_type IS NOT NULL ORDER BY fuel_type")
     fuel_types = [row[0] for row in db.execute(fuel_query)]
     
     # Get unique transmissions
-    trans_query = text("SELECT DISTINCT transmission FROM raw.used_vehicles WHERE transmission IS NOT NULL ORDER BY transmission")
+    trans_query = text("SELECT DISTINCT transmission FROM gold.vehicles WHERE transmission IS NOT NULL ORDER BY transmission")
     transmissions = [row[0] for row in db.execute(trans_query)]
     
     # Get unique drivetrains
-    drive_query = text("SELECT DISTINCT drivetrain FROM raw.used_vehicles WHERE drivetrain IS NOT NULL ORDER BY drivetrain")
+    drive_query = text("SELECT DISTINCT drivetrain FROM gold.vehicles WHERE drivetrain IS NOT NULL ORDER BY drivetrain")
     drivetrains = [row[0] for row in db.execute(drive_query)]
     
     # Get price range
-    price_query = text("SELECT MIN(price), MAX(price) FROM raw.used_vehicles WHERE price IS NOT NULL")
+    price_query = text("SELECT MIN(price), MAX(price) FROM gold.vehicles WHERE price IS NOT NULL")
     price_result = db.execute(price_query).fetchone()
     
     # Get mileage range
-    mileage_query = text("SELECT MIN(mileage), MAX(mileage) FROM raw.used_vehicles WHERE mileage IS NOT NULL")
+    mileage_query = text("SELECT MIN(mileage), MAX(mileage) FROM gold.vehicles WHERE mileage IS NOT NULL")
     mileage_result = db.execute(mileage_query).fetchone()
     
     return {

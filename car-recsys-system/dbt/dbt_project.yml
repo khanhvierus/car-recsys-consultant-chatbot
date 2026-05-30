@@ -1,0 +1,40 @@
+name: car_recsys
+version: "1.0.0"
+config-version: 2
+
+profile: car_recsys
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# ---------------------------------------------------------------------------
+# Layer materializations + schema placement.
+# The generate_schema_name override (macros/) makes +schema land LITERALLY in
+# `silver` / `gold`, not the dbt-default `<target>_silver`.
+# ---------------------------------------------------------------------------
+models:
+  car_recsys:
+    staging:
+      +materialized: view
+      +schema: silver_staging
+    silver:
+      +materialized: table
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold
+
+snapshots:
+  car_recsys:
+    +target_schema: silver
+
+vars:
+  # Statuses considered valid for `new_used` after normalization.
+  vehicle_conditions: ["New", "Used", "Certified"]

@@ -1,0 +1,12 @@
+# Keep the pipeline-worker build context (repo root) small.
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+crawler/local_data
+crawler/certs
+**/.env
+*.md
+!car-recsys-system/dbt/**
+datasets

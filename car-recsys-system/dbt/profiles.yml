@@ -1,0 +1,19 @@
+# dbt connection profile. All values come from env vars so the same project
+# runs locally, in the Temporal worker, or in CI without edits.
+#
+# Required env vars (the worker injects these from temporal_app/.env):
+#   DBT_PG_HOST, DBT_PG_PORT, DBT_PG_USER, DBT_PG_PASSWORD, DBT_PG_DBNAME
+car_recsys:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_PG_USER', 'admin') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', 'admin123') }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'car_recsys') }}"
+      schema: gold              # default target schema; overridden per-layer
+      threads: 4
+      keepalives_idle: 0
+      sslmode: prefer

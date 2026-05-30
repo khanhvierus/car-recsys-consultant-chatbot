@@ -1,0 +1,56 @@
+# Recommendation engine configuration.
+# Every weight / threshold lives here — no magic numbers in code.
+# Loaded by reco/config.py; missing keys fall back to dataclass defaults.
+
+# --- Candidate generation (stage 1) ---------------------------------------
+candidates:
+  collaborative:
+    enabled: true
+    user_history_limit: 50      # most-recent interactions used as seeds
+    neighbors_per_seed: 20      # gold.item_similarity neighbors per seed
+  content:
+    enabled: true
+    limit: 150
+    price_band_pct: 0.30        # ±30% price window around the seed
+  vector:
+    enabled: true
+    limit: 100
+  popularity:
+    enabled: true
+    limit: 100
+
+# --- Interaction weighting ------------------------------------------------
+# Strength of intent per action type. Time-decayed: w * exp(-lambda * days).
+interaction_weights:
+  view: 1.0
+  click: 2.0
+  compare: 3.0
+  save: 4.0
+  favorite: 4.0
+  contact: 8.0
+  inquiry: 8.0
+# 0.05 -> interactions keep ~50% weight after ~14 days (gentler than the old
+# 0.10 which halved them in 7 — car shopping has a long consideration cycle).
+time_decay_lambda: 0.05
+
+# --- Ranking (stage 2) ----------------------------------------------------
+# Linear scorer: score = sum(weight_i * normalized_feature_i). Explainable.
+ranker:
+  feature_weights:
+    cf_score: 3.0        # collaborative-filtering signal
+    content_score: 1.5   # spec/feature similarity
+    vector_score: 2.0    # semantic (Qdrant) similarity
+    popularity: 1.0      # global popularity prior
+    price_fit: 1.0       # closeness to the user's budget
+    model_rating: 0.8    # cars.com consumer rating of the model
+    recency: 0.5         # freshness of the listing crawl
+
+# --- Re-ranking (stage 3) -------------------------------------------------
+reranker:
+  mmr_lambda: 0.7        # 1.0 = pure relevance, 0.0 = pure diversity
+  max_per_brand: 3       # cap identical brands in the final list
+  max_per_model: 2       # cap identical car models
+
+# --- Output ---------------------------------------------------------------
+top_k: 20
+candidate_pool_size: 300   # max unique candidates carried into ranking

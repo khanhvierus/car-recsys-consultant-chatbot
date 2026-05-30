@@ -8,9 +8,9 @@ from app.core.database import Base
 
 
 class Vehicle(Base):
-    """Used vehicles table - main data from CSV"""
-    __tablename__ = "used_vehicles"
-    __table_args__ = {'schema': 'raw'}
+    """Vehicle listing — the dbt-built gold.vehicles mart (one row per VIN)."""
+    __tablename__ = "vehicles"
+    __table_args__ = {'schema': 'gold'}
 
     # Primary key
     vehicle_id = Column(String, primary_key=True)
@@ -74,7 +74,7 @@ class Vehicle(Base):
 class VehicleImage(Base):
     """Vehicle images table"""
     __tablename__ = "vehicle_images"
-    __table_args__ = {'schema': 'raw'}
+    __table_args__ = {'schema': 'gold'}
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     vehicle_id = Column(String, nullable=False, index=True)
@@ -86,7 +86,7 @@ class VehicleImage(Base):
 class VehicleFeature(Base):
     """Vehicle features table"""
     __tablename__ = "vehicle_features"
-    __table_args__ = {'schema': 'raw'}
+    __table_args__ = {'schema': 'gold'}
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     vehicle_id = Column(String, nullable=False, index=True)

@@ -1,130 +1,90 @@
-# crawler/
+# Cars.com crawler
 
-Optimized cars.com crawler. Replaces the monolithic `Carscrawling_raw.ipynb` notebook
-with a modular, resumable, concurrent Python package.
-
-## Why this exists
-
-The legacy notebook had:
-- `init_driver()` defined twice (~80 lines duplicated).
-- `safe_get_text` / `safe_get_attr` re-defined inside three different parsers.
-- A non-deterministic `hash(url)` cache key — broke resume across runs.
-- Sequential HTML collection inside an otherwise-parallel pipeline.
-- Bare `except:` clauses everywhere, no retries, no 429 handling.
-- Selenium for *every* page even when `httpx` would work in 1/20th the time.
-
-This package fixes all of that.
-
-## Architecture at a glance
+A modular reimplementation of the original Colab notebook. Each run processes
+**one** listing page end-to-end:
 
 ```
-discover_listing_urls(settings)        scrape_listings(settings)
-        │                                       │
-        ▼                                       ▼
-   DriverPool ── (scroll, wait)           HtmlFetcher
-   results pages → page_<n>.txt           ├─ httpx (HTTP/2, retries)  ← fast path
-                                          └─ DriverPool fallback      ← only on block
-                                                  │
-                                                  ▼
-                                          parsers.py (lxml + shared helpers)
-                                                  │
-                                                  ▼
-                                          raw_data/<page>/<idx>.json
+crawl-links  →  scrape-detail  →  upload-gcs
 ```
 
-| Layer        | Module          | Responsibility                                  |
-|--------------|-----------------|-------------------------------------------------|
-| Config       | `settings.py`   | URL templates, CSS selectors, runtime settings  |
-| Helpers      | `utils.py`      | `stable_hash`, int/float coercion, logging      |
-| Parsing      | `parsers.py`    | HTML → dict (pure functions, no I/O)            |
-| Browser      | `driver.py`     | Single `init_driver` + thread-safe `DriverPool` |
-| Fetching     | `fetcher.py`    | `httpx` first, Selenium fallback, on-disk cache |
-| Orchestration| `pipeline.py`   | `discover_listing_urls`, `scrape_listings`      |
-| CLI          | `__main__.py`   | `python -m crawler discover|scrape …`           |
+Runs on the **host** (not Docker): cars.com's Cloudflare Turnstile needs real
+Chrome via Xvfb, which the container can't reliably solve. Orchestration is
+Temporal — see [temporal_app/README.md](temporal_app/README.md).
 
-## Install
+## Repository layout
+
+```
+crawler/
+├── crawler/                       # the scraper package
+│   ├── config.py                  # env-var driven config
+│   ├── logging_setup.py
+│   ├── utils.py                   # text/attr/to_int/download_images
+│   ├── browser.py                 # SeleniumBase UC navigation + Turnstile
+│   ├── parsers/                   # post / seller / car HTML → dict
+│   ├── scraper.py                 # scrape_listing / dealer / full
+│   ├── link_crawler.py            # page-level link crawler
+│   ├── detail_scraper.py          # detail-page scraper
+│   ├── gcs_uploader.py            # JSON + image upload to GCS
+│   └── main.py                    # CLI entrypoint
+├── temporal_app/                  # Temporal workflows/activities/worker
+│   ├── workflows.py  activities.py  worker.py  client.py
+│   ├── pipeline/                  # bronze loader + ML jobs (transform/ML)
+│   └── scripts/                   # trigger_once.py  create_schedule.py
+├── run_local.sh                   # run one crawl stage standalone (debug)
+├── run_worker.sh                  # run the Temporal worker
+└── requirements.txt
+```
+
+## Run a single stage standalone (debug, no Temporal)
 
 ```bash
-pip install -r crawler/requirements.txt
+./run_local.sh crawl-links   --page 1   # URLs → local_data/car_links/page_1.txt
+./run_local.sh scrape-detail --page 1   # details → local_data/raw_data/1/<idx>.json
+./run_local.sh full          --page 1   # all three in sequence
 ```
 
-Pinned versions (verified 2026-04):
-
-| Package            | Version  | Notes                                                                |
-|--------------------|----------|----------------------------------------------------------------------|
-| selenium           | 4.43.0   | bumped from 3.x. Built-in **Selenium Manager** auto-discovers and downloads Chrome + ChromeDriver — no manual `apt install`, no `webdriver-manager`. |
-| beautifulsoup4     | 4.12.3   | now pinned                                                           |
-| lxml               | 5.3.0    | new — drop-in fast parser (~2× over html.parser)                     |
-| httpx[http2]       | 0.27.2   | new — replaces Selenium for static pages                             |
-| tenacity           | 9.0.0    | new — production-grade retries with backoff                          |
-
-**Removed:** `webdriver-manager` (superseded by Selenium Manager in selenium ≥ 4.11; production-mature in 4.43).
-
-## CLI
+Browser mode (default `xvfb` — no window pops up):
 
 ```bash
-# Discover URLs across pages 1-10 of search results
-python -m crawler discover --from 1 --to 10
-
-# Full scrape, parallel fetching, resumable
-python -m crawler scrape --from 1 --to 10 --http-workers 16
-
-# Disable resume / cache (force re-fetch)
-python -m crawler scrape --from 1 --to 10 --no-resume
-
-# Visible browser (debugging)
-python -m crawler discover --from 1 --to 1 --no-headless -v
+BROWSER_MODE=gui      ./run_local.sh crawl-links --page 1   # visible window
+BROWSER_MODE=headless ./run_local.sh crawl-links --page 1   # no display
 ```
 
-## Programmatic use
+First run creates `.venv` and installs deps. Requires Google Chrome on the host
+and (for `xvfb` mode) the `xvfb` package: `sudo apt install -y xvfb python3-tk`.
 
-```python
-from pathlib import Path
-from crawler import CrawlerSettings, discover_listing_urls, scrape_listings
+## Run via Temporal (scheduled weekly)
 
-settings = CrawlerSettings(
-    link_dir=Path("car_links"),
-    output_dir=Path("raw_data"),
-    html_cache_dir=Path("html_cache"),
-    start_page=1, end_page=10,
-    http_workers=16, selenium_workers=2,
-)
-discover_listing_urls(settings)
-scrape_listings(settings)
+See [temporal_app/README.md](temporal_app/README.md). In short:
+
+```bash
+cd ../car-recsys-system && docker compose up -d temporal temporal-ui   # server
+cd ../crawler && ./run_worker.sh                                       # worker (host)
+.venv/bin/python -m temporal_app.scripts.trigger_once crawl           # one run
+.venv/bin/python -m temporal_app.scripts.create_schedule              # weekly cron
 ```
 
-## Output schema (unchanged from legacy)
+## Configuration (env vars)
 
-```jsonc
-{
-  "post":   { "title", "price", "mileage", "monthly_payment", "basics_des", "feature_des", "user_history_des", "warranty_des", "image", "new_used" },
-  "seller": { "seller_name", "seller_link", "seller_key", "phone_info", "destination", "hours", "seller_rating", "seller_rating_count", "description", "images" },
-  "car":    { "car_model", "car_link", "review_link", "car_rating", "ratings", "percentage_recommend", "car_name", "brand", "reviews" },
-  "_metadata": { "url", "has_car_link", "has_ratings", "has_percentage", "is_complete" }
-}
-```
+All knobs in `crawler/config.py` are env-driven:
 
-`transform_raw_data.ipynb` consumes this format unchanged.
+| Var                              | Default                  | Notes                            |
+| -------------------------------- | ------------------------ | -------------------------------- |
+| `PAGE_NUMBER`                    | `1`                      | Single page to process           |
+| `DATA_ROOT`                      | `./local_data`           | Root for links, JSON, images     |
+| `MAX_BROWSER_WORKERS`            | `1`                      | Detail-scrape threads (host = 1) |
+| `RETRY_LIMIT`                    | `3`                      | Per-URL retries                  |
+| `INTER_REQUEST_DELAY`            | `1.5`                    | Seconds between detail requests  |
+| `BROWSER_MODE`                   | `xvfb`                   | `xvfb` / `gui` / `headless`      |
+| `GCS_BUCKET`                     | `bronze-car-recsys`      | Destination bucket               |
+| `GCS_PREFIX`                     | `raw_data`               | JSON prefix in bucket            |
+| `GOOGLE_APPLICATION_CREDENTIALS` | —                        | Path to service-account JSON     |
+| `CHROME_BINARY`                  | `/usr/bin/google-chrome` | Override if using Chromium       |
 
-## Performance notes
+## Notes vs. the original notebook
 
-- `--blink-settings=imagesEnabled=false` saves ~30% on Selenium page loads.
-- `page_load_strategy = "eager"` skips waiting for sub-resources.
-- `http2=True` halves connection overhead on `httpx`.
-- Connection pool reuses keepalive connections across worker threads.
-
-For a typical run (1 search page = ~50 cars), expect:
-- Legacy notebook: ~6–8 min/page (all Selenium, sequential collection).
-- This package: ~30–60 sec/page (httpx primary path, parallel).
-
-## Tuning
-
-If you start hitting 429s:
-- Lower `http_workers` (default 16 → try 8).
-- Increase `inter_request_delay` in `CrawlerSettings`.
-- The fetcher already honors `Retry-After` headers automatically.
-
-If httpx is being blocked (you'll see the "falling back to Selenium" log line):
-- Increase `selenium_workers` (default 2 → 4).
-- Consider adding an outbound proxy in `CrawlerSettings.extra_headers` /
-  the `httpx.Client` constructor in `fetcher.py`.
+- Removed Colab-only code (`google.colab.auth`, `nest_asyncio`).
+- `print()` replaced with `logging`.
+- One page per run; cadence handled by the Temporal schedule.
+- Resumable: existing `page_N.txt` and `<idx>.json` files are skipped, so a
+  retried run never redoes finished work.

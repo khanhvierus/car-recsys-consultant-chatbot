@@ -1,0 +1,97 @@
+version: 2
+
+models:
+  - name: dim_car_model
+    description: One row per car model (toyota-4runner-2019). Identity dimension.
+    columns:
+      - name: car_model_sk
+        tests: [not_null, unique]
+      - name: car_model_slug
+        tests: [not_null, unique]
+
+  - name: fct_model_rating
+    description: Model-level aggregate ratings from cars.com. One row per car model.
+    columns:
+      - name: car_model_sk
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              to: ref('dim_car_model')
+              field: car_model_sk
+
+  - name: dim_seller
+    description: One row per dealer.
+    columns:
+      - name: seller_sk
+        tests: [not_null, unique]
+      - name: seller_key
+        tests: [not_null, unique]
+
+  - name: dim_feature
+    description: Distinct (category, feature) pairs.
+    columns:
+      - name: feature_sk
+        tests: [not_null, unique]
+
+  - name: fct_listing
+    description: One row per current listing (VIN). Incremental.
+    columns:
+      - name: listing_sk
+        tests: [not_null, unique]
+      - name: vin
+        tests: [not_null, unique]
+      - name: new_used
+        tests:
+          - accepted_values:
+              values: ["New", "Used", "Certified"]
+              config:
+                severity: warn
+      - name: car_model_sk
+        tests:
+          - relationships:
+              to: ref('dim_car_model')
+              field: car_model_sk
+      - name: seller_sk
+        tests:
+          - relationships:
+              to: ref('dim_seller')
+              field: seller_sk
+      - name: price
+        tests:
+          - not_null:
+              config: {severity: warn}   # data-quality signal, not a hard fail
+
+  - name: bridge_listing_feature
+    description: Listing × feature many-to-many bridge.
+    columns:
+      - name: listing_sk
+        tests:
+          - relationships:
+              to: ref('fct_listing')
+              field: listing_sk
+      - name: feature_sk
+        tests:
+          - relationships:
+              to: ref('dim_feature')
+              field: feature_sk
+
+  - name: fct_model_review
+    description: One row per consumer review, keyed to the car model.
+    columns:
+      - name: review_sk
+        tests: [not_null, unique]
+      - name: car_model_sk
+        tests:
+          - relationships:
+              to: ref('dim_car_model')
+              field: car_model_sk
+
+  - name: dim_listing_image
+    description: Listing × image (gallery order preserved).
+    columns:
+      - name: listing_sk
+        tests:
+          - relationships:
+              to: ref('fct_listing')
+              field: listing_sk

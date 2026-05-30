@@ -1,0 +1,16 @@
+# Temporal SDK + pipeline (transform/ML) dependencies.
+# crawler/requirements.txt covers the crawler (seleniumbase, gcs, etc).
+temporalio>=1.7,<2.0
+
+# Transform: dbt + Postgres driver + GCS (load_bronze)
+dbt-core>=1.7,<2.0
+dbt-postgres>=1.7,<2.0
+psycopg2-binary>=2.9,<3.0
+google-cloud-storage>=2.14,<4.0
+
+# ML: similarity + embeddings
+numpy>=1.26,<3.0
+scipy>=1.11,<2.0
+scikit-learn>=1.3,<2.0
+openai>=1.30,<2.0
+qdrant-client>=1.9,<2.0

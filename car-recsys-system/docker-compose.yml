@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL - Data Platform
   postgres:
@@ -31,7 +29,7 @@ services:
       - "3001:3000"
     environment:
       PGRST_DB_URI: postgres://admin:admin123@postgres:5432/car_recsys
-      PGRST_DB_SCHEMAS: raw,silver,gold
+      PGRST_DB_SCHEMAS: bronze,silver,gold
       PGRST_DB_ANON_ROLE: admin
       PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:3001
       PGRST_SERVER_CORS_ALLOWED_ORIGINS: "*"
@@ -45,14 +43,17 @@ services:
   bytebase:
     image: bytebase/bytebase:latest
     container_name: car-recsys-bytebase
+    profiles: ["tools"]        # optional — `docker compose --profile tools up bytebase`
     ports:
       - "8080:8080"
-    environment:
-      - PG_URL=postgresql://admin:admin123@postgres:5432/car_recsys
+    # No PG_URL: bytebase keeps its OWN metadata in the embedded store under
+    # /var/opt/bytebase, so it never writes into the car_recsys app database.
+    # Add car_recsys as an "instance" inside the Bytebase UI to browse it.
     volumes:
       - bytebase_data:/var/opt/bytebase
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - car-recsys-network
     restart: unless-stopped
@@ -123,27 +124,11 @@ services:
       - car-recsys-network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  # ETL Worker (Data Pipeline)
-  etl-worker:
-    build:
-      context: ./etl
-      dockerfile: Dockerfile
-    container_name: car-recsys-etl
-    environment:
-      - DATABASE_URL=postgresql://admin:admin123@postgres:5432/car_recsys
-      - QDRANT_URL=http://qdrant:6333
-    volumes:
-      - ./etl:/app
-      - ../datasets:/app/datasets
-    depends_on:
-      - postgres
-      - qdrant
-    networks:
-      - car-recsys-network
-    command: tail -f /dev/null
-
   # Frontend (Vite + React)
+  # Excluded from the default `docker compose up` — run it on the host with
+  # `npm run dev`. Start the container instead with `--profile frontend`.
   frontend:
+    profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -159,6 +144,85 @@ services:
       - backend
     networks:
       - car-recsys-network
+
+  # Temporal - workflow orchestration (replaces Airflow)
+  # auto-setup creates the temporal databases in the shared postgres on boot.
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    container_name: car-recsys-temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=admin
+      - POSTGRES_PWD=admin123
+      - POSTGRES_SEEDS=postgres
+    ports:
+      - "7233:7233"          # gRPC — worker + scripts connect here
+    networks:
+      - car-recsys-network
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # Temporal Web UI — workflows, schedules, history
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    container_name: car-recsys-temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8233
+    ports:
+      - "8233:8080"          # http://localhost:8233
+    networks:
+      - car-recsys-network
+
+  # Pipeline worker — Transform + ML workflows (no Chrome).
+  # The crawler worker is NOT here: it runs on the host (./run_worker.sh)
+  # because cars.com's Turnstile needs real Chrome via Xvfb.
+  pipeline-worker:
+    build:
+      context: ..                          # repo root (needs crawler/ + dbt/)
+      dockerfile: crawler/Dockerfile.pipeline
+    image: car-pipeline-worker:latest
+    container_name: car-recsys-pipeline-worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - WAREHOUSE_DSN=postgresql://admin:admin123@postgres:5432/car_recsys
+      # dbt connection (profiles.yml reads these)
+      - DBT_PG_HOST=postgres
+      - DBT_PG_PORT=5432
+      - DBT_PG_USER=admin
+      - DBT_PG_PASSWORD=admin123
+      - DBT_PG_DBNAME=car_recsys
+      # ML: embeddings → Qdrant
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION=car_chatbot_vectors
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+      - OPENAI_EMBEDDING_DIM=3072
+      # Bronze: GCS source
+      - GCS_BUCKET=${GCS_BUCKET:-incremental_raw}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcp/adc.json
+    volumes:
+      # GCS Application Default Credentials (read-only) for load_bronze.
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/gcp/adc.json:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - car-recsys-network
+    restart: unless-stopped
 
 networks:
   car-recsys-network:

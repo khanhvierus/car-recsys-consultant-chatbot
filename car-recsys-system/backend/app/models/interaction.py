@@ -18,8 +18,10 @@ class UserInteraction(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey('gold.users.id', ondelete='CASCADE'), nullable=False)
-    vehicle_id = Column(String, ForeignKey('raw.used_vehicles.vehicle_id', ondelete='CASCADE'), nullable=False)
-    interaction_type = Column(String, nullable=False)  # view, click, favorite, compare, contact
+    # vehicle_id is a plain VIN string — NO FK. gold.vehicles is rebuilt by dbt
+    # (DROP/CREATE), so a cross-schema FK into it would break --full-refresh.
+    vehicle_id = Column(String, nullable=False)
+    interaction_type = Column(String, nullable=False)  # view, click, compare, save, favorite, contact, inquiry
     session_id = Column(String)
     interaction_score = Column(Numeric, default=1.0)
     extra_data = Column(JSONB)
@@ -35,7 +37,7 @@ class UserFavorite(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey('gold.users.id', ondelete='CASCADE'), nullable=False)
-    vehicle_id = Column(String, ForeignKey('raw.used_vehicles.vehicle_id', ondelete='CASCADE'), nullable=False)
+    vehicle_id = Column(String, nullable=False)   # plain VIN — no FK (see UserInteraction)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

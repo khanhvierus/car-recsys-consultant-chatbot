@@ -1,0 +1,38 @@
+# Pipeline worker image — Transform + ML workflows (no Chrome).
+# Build context = repo root (needs both crawler/ and car-recsys-system/dbt/).
+#
+#   docker build -f crawler/Dockerfile.pipeline -t car-pipeline-worker:latest .
+#
+# It runs temporal_app.pipeline_worker on PIPELINE_TASK_QUEUE.
+
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# psycopg2-binary + numpy/scipy/sklearn wheels need no build toolchain on slim,
+# but libgomp is required at runtime by scikit-learn.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Only the pipeline deps — NOT the crawler's seleniumbase/chrome stack.
+COPY crawler/temporal_app/requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
+
+# Worker code + pipeline logic.
+COPY crawler/temporal_app /app/temporal_app
+# dbt project the dbt_build activity invokes.
+COPY car-recsys-system/dbt /app/dbt
+# matviews SQL the refresh_matviews activity runs.
+COPY car-recsys-system/database/matviews.sql /app/matviews.sql
+
+ENV PYTHONPATH=/app \
+    DBT_DIR=/app/dbt \
+    MATVIEWS_SQL=/app/matviews.sql
+
+CMD ["python", "-m", "temporal_app.pipeline_worker"]
