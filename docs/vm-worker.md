@@ -24,6 +24,8 @@ GCE VM (e2-standard-2, us-central1-a)
 - ✅ Worker `client.py` hỗ trợ `TEMPORAL_API_KEY` (commit `1407f83`).
 - ✅ Artifact Registry repo: `us-central1-docker.pkg.dev/cobalt-bond-494609-a6/car-recsys`
 - ✅ Image đã push: `.../car-recsys/pipeline-worker:latest`
+- ✅ VM `temporal-worker` chạy worker → **Connected** Temporal Cloud (poll `car-pipeline-tq`)
+- ✅ VM IP đã trong Cloud SQL authorized network (connect tới được, chỉ cần đúng password)
 
 ---
 
@@ -90,12 +92,10 @@ docker pull $IMG
 
 # file env (KHÔNG commit — chứa secret):
 cat > worker.env <<'EOF'
-# Temporal Cloud
 TEMPORAL_ADDRESS=car-recsys.islko.tmprl.cloud:7233
 TEMPORAL_NAMESPACE=car-recsys.islko
-TEMPORAL_API_KEY=<dán API key tmprl_... vào đây>
+TEMPORAL_API_KEY=<dán API key tmprl từ Temporal Cloud>
 
-# Cloud SQL (warehouse)
 WAREHOUSE_DSN=postgresql://admin:<PASS>@34.66.189.61:5432/car_recsys?sslmode=require
 DBT_PG_HOST=34.66.189.61
 DBT_PG_PORT=5432
@@ -104,18 +104,21 @@ DBT_PG_PASSWORD=<PASS>
 DBT_PG_DBNAME=car_recsys
 DBT_PG_SSLMODE=require
 
-# GCS (load_bronze) — dùng service account của VM, không cần key file
 GCS_BUCKET=incremental_raw
 GCP_PROJECT_ID=cobalt-bond-494609-a6
 
-# ML (embeddings) — bỏ trống nếu chưa dùng
-OPENAI_API_KEY=
+OPENAI_API_KEY=<OpenAI key, để trống nếu chưa dùng>
 QDRANT_URL=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-large
 OPENAI_EMBEDDING_DIM=3072
 EOF
 ```
 
+> **⚠️ Thay password ở 2 CHỖ:** cả `WAREHOUSE_DSN` (dùng bởi load_bronze /
+> ensure_partition / refresh_matviews qua psycopg2) VÀ `DBT_PG_PASSWORD` (dùng
+> bởi dbt). Quên `<PASS>` trong WAREHOUSE_DSN → `ensure_partition` báo
+> `password authentication failed for user "admin"`.
+>
 > **GCS auth trên VM:** image dùng `google.cloud.storage` → tự lấy credential từ
 > metadata server của VM (scope cloud-platform). Không cần `GOOGLE_APPLICATION_CREDENTIALS`.
 > Nhưng phải đảm bảo service account của VM có quyền đọc bucket (mặc định Compute
