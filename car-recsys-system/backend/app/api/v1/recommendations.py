@@ -39,7 +39,10 @@ def _get_qdrant():
         _qdrant_tried = True
         try:
             from qdrant_client import QdrantClient
-            _qdrant_client = QdrantClient(url=settings.QDRANT_URL)
+            _qdrant_client = QdrantClient(
+                url=settings.QDRANT_URL,
+                api_key=settings.QDRANT_API_KEY or None,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Qdrant unavailable for vector recall: %s", exc)
             _qdrant_client = None

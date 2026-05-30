@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # Vector Database
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "car_chatbot_vectors")
+    QDRANT_API_KEY: str = os.getenv("QDRANT_API_KEY", "")
     
     # OpenAI
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

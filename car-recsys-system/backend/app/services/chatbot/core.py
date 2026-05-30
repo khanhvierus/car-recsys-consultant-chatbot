@@ -118,7 +118,7 @@ def initialize_chatbot() -> Chatbot:
     llm = ChatOpenAI(model=CHATBOT_CONFIG.llm_model,
                      temperature=CHATBOT_CONFIG.temperature,
                      openai_api_key=api_key)
-    qdrant = QdrantClient(url=settings.QDRANT_URL)
+    qdrant = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None)
     db_engine = create_engine(settings.DATABASE_URL, pool_size=5, max_overflow=10)
 
     _chatbot = Chatbot(llm=llm, embeddings=embeddings,
