@@ -24,7 +24,6 @@ const SellPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleImageUpload = () => {
-    // Mock image upload - in real app, this would open file picker
     const mockImages = [
       "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=400&h=300&fit=crop&q=80",
       "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=400&h=300&fit=crop&q=80",
@@ -42,7 +41,6 @@ const SellPage = () => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Simulate API call
     setTimeout(() => {
       setIsSubmitting(false);
       toast({
@@ -54,16 +52,47 @@ const SellPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ backgroundColor: "#1a5cf5" }}>
+      {/* Large circle top-left (cut off) */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "520px", height: "520px", top: "-180px", left: "-160px", backgroundColor: "#0e2d8f", opacity: 0.85 }} />
+      {/* Medium circle top-right (cut off) */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "300px", height: "300px", top: "-80px", right: "-60px", backgroundColor: "#0c2580", opacity: 0.7 }} />
+      {/* Large semicircle bottom-right */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "680px", height: "680px", bottom: "-280px", right: "-180px", backgroundColor: "#1035a8", opacity: 0.85 }} />
+      {/* Medium circle bottom-left (cut off) */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "360px", height: "360px", bottom: "-120px", left: "-100px", backgroundColor: "#0c2a9e", opacity: 0.65 }} />
+      {/* Medium circle left-center */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "200px", height: "200px", top: "42%", left: "-70px", backgroundColor: "#0e2d8f", opacity: 0.55 }} />
+      {/* Small dot top-center */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "52px", height: "52px", top: "60px", left: "44%", backgroundColor: "#0e2470", opacity: 0.9 }} />
+      {/* Small dot right-center */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "36px", height: "36px", top: "38%", right: "12%", backgroundColor: "#0a1f6e", opacity: 0.75 }} />
+      {/* Tiny dot top-left area */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "22px", height: "22px", top: "22%", left: "18%", backgroundColor: "#0a1f6e", opacity: 0.6 }} />
+      {/* Tiny dot bottom-center */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "18px", height: "18px", bottom: "18%", left: "52%", backgroundColor: "#0c2580", opacity: 0.65 }} />
+      {/* Small circle mid-right */}
+      <div className="pointer-events-none absolute rounded-full"
+        style={{ width: "110px", height: "110px", top: "55%", right: "-30px", backgroundColor: "#0e2d8f", opacity: 0.6 }} />
+
       <Header />
-      <main className="flex-1 pt-28 pb-16">
+      <main className="flex-1 pt-28 pb-16 relative z-10">
         <div className="container mx-auto px-4 max-w-3xl">
           {/* Header */}
           <div className="text-center mb-12">
-            <h1 className="font-heading text-3xl md:text-4xl font-semibold text-foreground mb-3">
+            <h1 className="font-poppins text-3xl md:text-4xl font-semibold text-white mb-3">
               Sell Your Car
             </h1>
-            <p className="text-muted-foreground text-lg">
+            <p className="text-blue-100 text-lg">
               Fill in the details about your car to find a buyer quickly
             </p>
           </div>
@@ -116,7 +145,7 @@ const SellPage = () => {
 
             {/* Basic Info */}
             <div className="bg-card border border-border rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-6">Basic Information</h3>
+              <h3 className="font-poppins text-lg font-semibold mb-6">Basic Information</h3>
 
               <div className="grid sm:grid-cols-2 gap-5">
                 <div className="space-y-2">
@@ -207,7 +236,7 @@ const SellPage = () => {
 
             {/* Description */}
             <div className="bg-card border border-border rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-6">Description</h3>
+              <h3 className="font-poppins text-lg font-semibold mb-6">Description</h3>
               <Textarea
                 id="description"
                 placeholder="Describe the vehicle condition, maintenance history, notable features..."
@@ -217,7 +246,7 @@ const SellPage = () => {
 
             {/* Contact Info */}
             <div className="bg-card border border-border rounded-2xl p-6">
-              <h3 className="text-lg font-semibold mb-6">Contact Information</h3>
+              <h3 className="font-poppins text-lg font-semibold mb-6">Contact Information</h3>
 
               <div className="grid sm:grid-cols-2 gap-5">
                 <div className="space-y-2">
@@ -238,18 +267,10 @@ const SellPage = () => {
             </div>
 
             {/* Submit */}
-            <div className="flex gap-4 pt-4">
+            <div className="pt-4">
               <Button
-                type="button"
-                variant="outline"
-                className="flex-1 h-14 rounded-xl text-base"
-                onClick={() => navigate(-1)}
-              >
-                Cancel
-              </Button>
-              <Button 
-                type="submit" 
-                className="flex-1 h-14 rounded-xl text-base bg-accent hover:bg-gold-dark text-accent-foreground shadow-gold" 
+                type="submit"
+                className="w-full h-14 rounded-xl text-base bg-[#0E317D] hover:bg-[#0C2868] hover:shadow-lg text-white font-semibold transition-all duration-200"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

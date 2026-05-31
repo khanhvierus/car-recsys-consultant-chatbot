@@ -1,17 +1,29 @@
-# Build stage — produce the static Vite bundle.
-FROM node:20-alpine AS build
+# Build stage
+FROM node:18-alpine AS builder
 WORKDIR /app
-COPY package.json bun.lockb* package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+COPY package*.json ./
+RUN npm install
 COPY . .
-# VITE_API_URL is inlined at build time (Vite). Pass it as a build arg.
-ARG VITE_API_URL
-ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
-# Serve stage — nginx serves the static bundle on $PORT (8080).
+# Production stage
 FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 8080
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
+# Build stage
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# Production stage
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 3000
+CMD ["nginx", "-g", "daemon off;"]
+

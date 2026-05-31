@@ -21,6 +21,8 @@ export default {
       fontFamily: {
         heading: ["Cormorant Garamond", "serif"],
         body: ["Jost", "sans-serif"],
+        sansita: ["Sansita One", "sans-serif"],
+        poppins: ["Poppins", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

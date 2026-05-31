@@ -1,194 +1,120 @@
-/**
- * Header Component with Navigation
- */
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  Menu, X, Search, User, LogOut, Heart, 
-  Settings, MessageCircle, ChevronDown, Car 
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import ThemeToggle from '@/components/ThemeToggle';
-import { getCurrentUser, clearAuthData, isAuthenticated, User as UserType } from '@/lib/api';
-import { cn } from '@/lib/utils';
+// import { Link } from "react-router-dom";
+// import { Button } from "@/components/ui/button";
+// import { NavLink } from "@/components/NavLink";
+// import { isAuthenticated } from "@/lib/api";
 
-export default function Header() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState<UserType | null>(null);
-  const navigate = useNavigate();
-  const location = useLocation();
+// const Header = () => {
+//   const loggedIn = isAuthenticated();
 
-  useEffect(() => {
-    setUser(getCurrentUser());
-  }, [location]);
+//   return (
+//     <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white">
+//       <div className="container mx-auto px-4">
+//         <div className="flex h-20 items-center justify-between">
 
-  const handleLogout = () => {
-    clearAuthData();
-    setUser(null);
-    navigate('/');
-  };
+//           <div className="flex items-center gap-8">
+//             <Link to="/" className="text-2xl font-extrabold text-slate-900 font-sansita">
+//               Car<span className="text-[#0E317D]">Market</span>
+//             </Link>
+//           </div>
 
-  const getUserInitials = () => {
-    if (user?.full_name) {
-      return user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    }
-    if (user?.username) {
-      return user.username.slice(0, 2).toUpperCase();
-    }
-    if (user?.email) {
-      return user.email.slice(0, 2).toUpperCase();
-    }
-    return 'U';
-  };
+//           <nav className="hidden items-center gap-6 md:flex">
+//             <NavLink
+//               to="/"
+//               className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+//               end
+//             >
+//               Home
+//             </NavLink>
+//             <NavLink
+//               to="/search"
+//               className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+//             >
+//               Browse
+//             </NavLink>
+//             <NavLink
+//               to="/sell"
+//               className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+//             >
+//               Sell
+//             </NavLink>
+//           </nav>
 
-  const navLinks = [
-    { href: '/search', label: 'Browse Cars', icon: Search },
-    { href: '/chat', label: 'AI Assistant', icon: MessageCircle },
-    { href: '/sell', label: 'Sell Your Car', icon: Car },
-  ];
+//           <div className="flex items-center gap-2">
+//             <Button asChild size="sm" className="rounded-lg bg-[#0E317D] text-white hover:bg-[#0E317D]/90">
+//               <Link to={loggedIn ? "/search" : "/login"}>{loggedIn ? "Explore" : "Login"}</Link>
+//             </Button>
+//           </div>
+          
+//         </div>
+//       </div>
+//     </header>
+//   );
+// };
+
+// export default Header;
+
+
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { NavLink } from "@/components/NavLink";
+import { isAuthenticated } from "@/lib/api";
+
+const Header = () => {
+  const loggedIn = isAuthenticated();
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between px-4">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
-          <Car className="h-8 w-8 text-primary" />
-          <span className="hidden font-bold text-xl sm:inline-block">
-            CarFinder
-          </span>
-        </Link>
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white">
+      <div className="container mx-auto px-4">
+        <div className="flex h-20 items-center justify-between">
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-6">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              to={link.href}
-              className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary",
-                location.pathname === link.href 
-                  ? "text-primary" 
-                  : "text-muted-foreground"
-              )}
-            >
-              <link.icon className="h-4 w-4" />
-              {link.label}
+          <div className="flex items-center gap-8">
+            <Link to="/" className="text-2xl font-extrabold text-slate-900 font-sansita">
+              Car<span className="text-[#0E317D]">Market</span>
             </Link>
-          ))}
-        </nav>
+          </div>
 
-        {/* Right Side Actions */}
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {getUserInitials()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" forceMount>
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {user.full_name || user.username || 'User'}
-                    </p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {user.email}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/favorites" className="flex items-center gap-2 cursor-pointer">
-                    <Heart className="h-4 w-4" />
-                    Favorites
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/chat" className="flex items-center gap-2 cursor-pointer">
-                    <MessageCircle className="h-4 w-4" />
-                    AI Assistant
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 cursor-pointer text-destructive"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <Button asChild variant="default" size="sm">
-              <Link to="/login">
-                <User className="h-4 w-4 mr-2" />
-                Sign In
-              </Link>
-            </Button>
-          )}
+          <nav className="hidden items-center gap-6 md:flex">
+            <NavLink
+              to="/"
+              className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+              end
+            >
+              Home
+            </NavLink>
+            <NavLink
+              to="/search"
+              className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+            >
+              Browse
+            </NavLink>
+            <NavLink
+              to="/sell"
+              className="text-base font-semibold text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 hover:scale-105 rounded-md px-3 py-2"
+            >
+              Sell
+            </NavLink>
+          </nav>
 
-          {/* Mobile Menu Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            {mobileMenuOpen ? (
-              <X className="h-6 w-6" />
+          <div className="flex items-center gap-2">
+            {loggedIn ? (
+              <Button asChild size="sm" className="rounded-lg bg-[#0E317D] text-white hover:bg-[#0E317D]/90">
+                <Link to="/search">Explore</Link>
+              </Button>
             ) : (
-              <Menu className="h-6 w-6" />
+              <Link
+                to="/login"
+                className="relative text-base font-semibold text-slate-700 transition-all duration-200 hover:text-[#0E317D] hover:scale-105 group px-1"
+              >
+                Login
+                <span className="absolute left-0 -bottom-0.5 h-[2px] w-0 bg-[#0E317D] transition-all duration-200 group-hover:w-full rounded-full" />
+              </Link>
             )}
-          </Button>
+          </div>
+          
         </div>
       </div>
-
-      {/* Mobile Navigation */}
-      {mobileMenuOpen && (
-        <div className="border-t md:hidden">
-          <nav className="container py-4 px-4 space-y-2">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                to={link.href}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  location.pathname === link.href 
-                    ? "bg-accent text-accent-foreground" 
-                    : "hover:bg-accent hover:text-accent-foreground"
-                )}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <link.icon className="h-5 w-5" />
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-      )}
     </header>
   );
-}
+};
+
+export default Header;

@@ -1,100 +1,111 @@
-/**
- * API Service Layer for Car Recommendation System
- * Provides typed interfaces and functions for all API calls
- */
+// --- Chat API ---
+export const chatApi = {
+  async sendMessage(message: string, conversationId?: string) {
+    const response = await api.post("/chat/send", { message, conversation_id: conversationId });
+    return response.data;
+  },
+  async getConversations(limit = 20) {
+    const response = await api.get("/chat/conversations", { params: { limit } });
+    return response.data;
+  },
+  async getConversationMessages(conversationId: string) {
+    const response = await api.get(`/chat/conversations/${conversationId}/messages`);
+    return response.data;
+  },
+  async deleteConversation(conversationId: string) {
+    await api.delete(`/chat/conversations/${conversationId}`);
+  },
+};
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export function formatMileage(mileage?: number | null): string {
+  if (mileage == null || Number.isNaN(mileage)) return "N/A";
+  return `${mileage.toLocaleString()} mi`;
+}
 
-// ============== TYPES ==============
+export function getCurrentUser(): User | null {
+  return getAuthData()?.user ?? null;
+}
+import axios from "axios";
+
+const API_BASE_URL = "/api/v1";
+const AUTH_STORAGE_KEY = "car_recsys_auth";
 
 export interface Vehicle {
-  id?: string;
   vehicle_id: string;
-  vin?: string;
-  year?: number;
-  make?: string;
-  model?: string;
   title?: string;
   brand?: string;
   car_model?: string;
-  trim?: string;
-  body_type?: string;
-  engine?: string;
-  transmission?: string;
-  drivetrain?: string;
-  fuel_type?: string;
+  car_name?: string;
+  price?: number | null;
+  monthly_payment?: number | null;
+  mileage?: number | null;
+  mileage_str?: string;
   exterior_color?: string;
   interior_color?: string;
-  mileage?: number;
-  mileage_str?: string;
-  price?: number;
+  drivetrain?: string;
+  mpg?: string;
+  fuel_type?: string;
+  transmission?: string;
+  engine?: string;
   condition?: string;
-  city?: string;
-  state?: string;
-  zip_code?: string;
-  listing_url?: string;
+  accidents_damage?: string;
+  one_owner?: boolean | null;
+  car_rating?: number | null;
+  percentage_recommend?: number | null;
+  comfort_rating?: number | null;
+  interior_rating?: number | null;
+  performance_rating?: number | null;
+  value_rating?: number | null;
+  exterior_rating?: number | null;
+  reliability_rating?: number | null;
   vehicle_url?: string;
-  created_at?: string;
+  total_images?: number | null;
   image_url?: string;
   images?: string[];
-  car_rating?: number;
-  mpg?: string;
+  features?: string[];
 }
 
-export interface VehicleDetail extends Vehicle {
-  description?: string;
-  features?: string[];
-  comfort_rating?: number;
-  interior_rating?: number;
-  performance_rating?: number;
-  value_rating?: number;
-  exterior_rating?: number;
-  reliability_rating?: number;
-  percentage_recommend?: number;
-  accidents_damage?: string;
-  one_owner?: boolean;
-  monthly_payment?: number;
-  seller_info?: {
-    name?: string;
-    phone?: string;
-    rating?: number;
-  };
-  similar_vehicles?: Vehicle[];
-}
+export interface VehicleDetail extends Vehicle {}
 
 export interface SearchParams {
   query?: string;
-  make?: string;
+  condition?: string;
+  brand?: string;
   model?: string;
-  min_year?: number;
-  max_year?: number;
-  min_price?: number;
-  max_price?: number;
-  body_type?: string;
-  transmission?: string;
+  year_min?: number;
+  year_max?: number;
+  price_min?: number;
+  price_max?: number;
+  mileage_max?: number;
   fuel_type?: string;
+  transmission?: string;
   drivetrain?: string;
   exterior_color?: string;
-  city?: string;
-  state?: string;
-  limit?: number;
-  offset?: number;
+  min_rating?: number;
   sort_by?: string;
-  sort_order?: 'asc' | 'desc';
+  sort_order?: "asc" | "desc";
+  page?: number;
+  page_size?: number;
 }
 
 export interface SearchResponse {
-  items: Vehicle[];
+  results: Vehicle[];
   total: number;
-  limit: number;
-  offset: number;
-  facets?: Record<string, Array<{ value: string; count: number }>>;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface RecommendationItem {
+  vehicle: Vehicle;
+  score: number;
+  reason?: string;
 }
 
 export interface RecommendationResponse {
-  recommendations: Vehicle[];
-  recommendation_type: string;
+  recommendations: RecommendationItem[];
   total: number;
+  algorithm: string;
 }
 
 export interface Interaction {
@@ -102,6 +113,9 @@ export interface Interaction {
   user_id: string;
   vehicle_id: string;
   interaction_type: string;
+  session_id?: string;
+  interaction_score?: number;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -109,53 +123,17 @@ export interface Favorite {
   id: string;
   user_id: string;
   vehicle_id: string;
-  vehicle?: Vehicle;
   created_at: string;
-}
-
-export interface Review {
-  vehicle_id: string;
-  title?: string;
-  overall_rating?: number;
-  review_time?: string;
-  user_name?: string;
-  user_location?: string;
-  review_text?: string;
-  comfort_rating?: number;
-  interior_rating?: number;
-  performance_rating?: number;
-  value_rating?: number;
-  exterior_rating?: number;
-  reliability_rating?: number;
-}
-
-export interface Seller {
-  seller_key: string;
-  seller_name?: string;
-  seller_address?: string;
-  seller_city?: string;
-  seller_state?: string;
-  seller_zip?: string;
-  seller_phone?: string;
-  seller_website?: string;
-  seller_rating?: number;
-  seller_rating_count?: number;
-  description?: string;
-  hours_monday?: string;
-  hours_tuesday?: string;
-  hours_wednesday?: string;
-  hours_thursday?: string;
-  hours_friday?: string;
-  hours_saturday?: string;
-  hours_sunday?: string;
 }
 
 export interface User {
   id: string;
+  username: string;
   email: string;
-  username?: string;
   full_name?: string;
-  created_at?: string;
+  phone?: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface AuthResponse {
@@ -164,376 +142,207 @@ export interface AuthResponse {
   user: User;
 }
 
-// Chat types
-export interface ChatMessage {
-  id: string;
-  conversation_id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-  vehicles?: Vehicle[];
-}
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
 
-export interface ChatConversation {
-  conversation_id: string;
-  user_id?: string;
-  created_at: string;
-  updated_at: string;
-  message_count: number;
-  preview?: string;
-}
-
-export interface ChatResponse {
-  conversation_id: string;
-  message_id: string;
-  response: string;
-  vehicles: Vehicle[];
-  timestamp: string;
-}
-
-// ============== HELPER FUNCTIONS ==============
-
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('auth_token');
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
+api.interceptors.request.use((config) => {
+  const token = getAuthToken();
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  return headers;
-}
+  return config;
+});
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
-    throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearAuthData();
+    }
+    return Promise.reject(error);
   }
-  return response.json();
-}
+);
 
-export function formatPrice(price: number | undefined): string {
-  if (!price) return 'Call for Price';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
-}
-
-export function formatMileage(mileage: number | undefined): string {
-  if (!mileage) return 'N/A';
-  return new Intl.NumberFormat('en-US').format(mileage) + ' mi';
-}
-
-// ============== AUTH HELPERS ==============
-
-export function storeAuthData(response: AuthResponse): void {
-  localStorage.setItem('auth_token', response.access_token);
-  localStorage.setItem('auth_user', JSON.stringify(response.user));
-}
-
-export function clearAuthData(): void {
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('auth_user');
-}
-
-export function isAuthenticated(): boolean {
-  return !!localStorage.getItem('auth_token');
-}
-
-export function getCurrentUser(): User | null {
-  const userData = localStorage.getItem('auth_user');
-  if (!userData) return null;
+export function getAuthData(): AuthResponse | null {
   try {
-    return JSON.parse(userData);
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as AuthResponse) : null;
   } catch {
     return null;
   }
 }
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem('auth_token');
+  return getAuthData()?.access_token ?? null;
 }
 
-// ============== INTERACTION TRACKING ==============
+export function storeAuthData(data: AuthResponse): void {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+}
 
-export async function trackVehicleView(vehicleId: string): Promise<void> {
-  if (!isAuthenticated()) return;
-  
-  try {
-    await fetch(`${API_BASE_URL}/api/v1/interactions/track`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        vehicle_id: vehicleId,
-        interaction_type: 'view'
-      })
-    });
-  } catch (error) {
-    console.warn('Failed to track view:', error);
+export function clearAuthData(): void {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return Boolean(getAuthToken());
+}
+
+export function formatPrice(price?: number | null): string {
+  if (price == null || Number.isNaN(price)) {
+    return "Price on request";
   }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(price);
 }
-
-export async function trackVehicleClick(vehicleId: string): Promise<void> {
-  if (!isAuthenticated()) return;
-  
-  try {
-    await fetch(`${API_BASE_URL}/api/v1/interactions/track`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        vehicle_id: vehicleId,
-        interaction_type: 'click'
-      })
-    });
-  } catch (error) {
-    console.warn('Failed to track click:', error);
-  }
-}
-
-// ============== API SERVICES ==============
 
 export const vehiclesApi = {
   async search(params: SearchParams): Promise<SearchResponse> {
-    const queryParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        queryParams.append(key, String(value));
-      }
-    });
-
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/search?${queryParams.toString()}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<SearchResponse>(response);
+    const response = await api.get<SearchResponse>("/search", { params });
+    return response.data;
   },
 
-  async getById(id: string): Promise<VehicleDetail> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/listing/${id}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<VehicleDetail>(response);
+  async getById(vehicleId: string): Promise<VehicleDetail> {
+    const response = await api.get<VehicleDetail>(`/listing/${vehicleId}`);
+    return response.data;
   },
 
   async getListings(limit = 10, offset = 0): Promise<Vehicle[]> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/listings?limit=${limit}&offset=${offset}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<Vehicle[]>(response);
+    const response = await api.get<Vehicle[]>("/listings", {
+      params: { limit, offset },
+    });
+    return response.data;
   },
-
-  async getFacets(): Promise<Record<string, string[]>> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/facets`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<Record<string, string[]>>(response);
-  },
-
-  async getReviews(vehicleId: string, limit = 10): Promise<Review[]> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/reviews/${vehicleId}?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<Review[]>(response);
-  },
-
-  async getSeller(vehicleId: string): Promise<Seller | null> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/seller/${vehicleId}`,
-      { headers: getAuthHeaders() }
-    );
-    if (response.status === 404) {
-      return null;
-    }
-    return handleResponse<Seller>(response);
-  }
 };
 
 export const recommendationsApi = {
   async getSimilar(vehicleId: string, limit = 6): Promise<RecommendationResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/reco/similar/${vehicleId}?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<RecommendationResponse>(response);
+    const response = await api.get<RecommendationResponse>(`/reco/similar/${vehicleId}`, {
+      params: { limit },
+    });
+    return response.data;
   },
 
   async getPersonalized(limit = 20): Promise<RecommendationResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/reco/for-you?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<RecommendationResponse>(response);
+    const response = await api.get<RecommendationResponse>("/reco/personalized", {
+      params: { limit },
+    });
+    return response.data;
   },
 
   async getPopular(limit = 20): Promise<RecommendationResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/reco/popular?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<RecommendationResponse>(response);
+    const response = await api.get<RecommendationResponse>("/reco/popular", {
+      params: { limit },
+    });
+    return response.data;
   },
 
   async getHybrid(limit = 20): Promise<RecommendationResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/reco/hybrid?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<RecommendationResponse>(response);
-  }
+    const response = await api.get<RecommendationResponse>("/reco/hybrid", {
+      params: { limit },
+    });
+    return response.data;
+  },
 };
 
 export const interactionsApi = {
-  async track(data: { vehicle_id: string; interaction_type: string }): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/interactions/track`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data)
-    });
-    return handleResponse<void>(response);
+  async track(payload: {
+    vehicle_id: string;
+    interaction_type: string;
+    session_id?: string;
+    interaction_score?: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<Interaction> {
+    const response = await api.post<Interaction>("/interactions/track", payload);
+    return response.data;
   },
 
   async getHistory(params?: { limit?: number; interaction_type?: string }): Promise<Interaction[]> {
-    const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', String(params.limit));
-    if (params?.interaction_type) queryParams.append('interaction_type', params.interaction_type);
-
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/interactions/history?${queryParams.toString()}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<Interaction[]>(response);
+    const response = await api.get<Interaction[]>("/interactions/history", { params });
+    return response.data;
   },
 
   async getFavorites(): Promise<Favorite[]> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/interactions/favorites`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<Favorite[]>(response);
+    const response = await api.get<Favorite[]>("/interactions/favorites");
+    return response.data;
   },
 
-  async addFavorite(vehicleId: string): Promise<Favorite> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/interactions/favorites`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ vehicle_id: vehicleId })
-    });
-    return handleResponse<Favorite>(response);
+  async addFavorite(vehicle_id: string): Promise<Favorite> {
+    const response = await api.post<Favorite>("/interactions/favorites", { vehicle_id });
+    return response.data;
   },
 
-  async removeFavorite(vehicleId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/interactions/favorites/${vehicleId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!response.ok) {
-      throw new Error('Failed to remove favorite');
-    }
-  }
+  async removeFavorite(vehicle_id: string): Promise<void> {
+    await api.delete(`/interactions/favorites/${vehicle_id}`);
+  },
 };
 
 export const authApi = {
-  async login(email: string, password: string): Promise<AuthResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        username: email,
-        password: password
-      })
-    });
-    return handleResponse<AuthResponse>(response);
-  },
-
-  async register(data: {
+  async register(payload: {
     username: string;
     email: string;
     password: string;
     full_name?: string;
     phone?: string;
   }): Promise<AuthResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data)
-    });
-    return handleResponse<AuthResponse>(response);
+    const response = await api.post<AuthResponse>("/auth/register", payload);
+    return response.data;
   },
 
-  async logout(): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
-      method: 'POST',
-      headers: getAuthHeaders()
-    });
+  async login(username: string, password: string): Promise<AuthResponse> {
+    const response = await api.post<AuthResponse>("/auth/login", { username, password });
+    return response.data;
+  },
+
+  async getMe(): Promise<User> {
+    const response = await api.get<User>("/auth/me");
+    return response.data;
+  },
+
+  logout(): void {
     clearAuthData();
-    if (!response.ok) {
-      // Still clear local data even if server fails
-      console.warn('Server logout failed, but local data cleared');
-    }
   },
-
-  async getCurrentUser(): Promise<User> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-      headers: getAuthHeaders()
-    });
-    return handleResponse<User>(response);
-  }
 };
 
-// ============== CHAT API ==============
-
-export const chatApi = {
-  async sendMessage(message: string, conversationId?: string): Promise<ChatResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat/message`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        message,
-        conversation_id: conversationId
-      })
-    });
-    return handleResponse<ChatResponse>(response);
-  },
-
-  async getConversations(limit = 20): Promise<ChatConversation[]> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/chat/conversations?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<ChatConversation[]>(response);
-  },
-
-  async getConversationMessages(conversationId: string, limit = 100): Promise<ChatMessage[]> {
-    const response = await fetch(
-      `${API_BASE_URL}/api/v1/chat/conversation/${conversationId}?limit=${limit}`,
-      { headers: getAuthHeaders() }
-    );
-    return handleResponse<ChatMessage[]>(response);
-  },
-
-  async deleteConversation(conversationId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat/conversation/${conversationId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!response.ok) {
-      throw new Error('Failed to delete conversation');
-    }
-  },
-
-  async healthCheck(): Promise<{ status: string }> {
-    const response = await fetch(`${API_BASE_URL}/api/v1/chat/health`);
-    return handleResponse<{ status: string }>(response);
+function getSessionId(): string {
+  const key = "car_recsys_session_id";
+  const existing = sessionStorage.getItem(key);
+  if (existing) {
+    return existing;
   }
-};
+  const created = crypto.randomUUID();
+  sessionStorage.setItem(key, created);
+  return created;
+}
+
+function trackInteractionSafe(vehicleId: string, interactionType: string, interactionScore: number): void {
+  if (!isAuthenticated()) {
+    return;
+  }
+
+  interactionsApi
+    .track({
+      vehicle_id: vehicleId,
+      interaction_type: interactionType,
+      interaction_score: interactionScore,
+      session_id: getSessionId(),
+    })
+    .catch(() => {
+      // Do not interrupt UI for analytics/tracking failures.
+    });
+}
+
+export function trackVehicleView(vehicleId: string): void {
+  trackInteractionSafe(vehicleId, "view", 1);
+}
+
+export function trackVehicleClick(vehicleId: string): void {
+  trackInteractionSafe(vehicleId, "click", 2);
+}

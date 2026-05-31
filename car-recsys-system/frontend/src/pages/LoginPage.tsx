@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Car, ArrowRight, Loader2 } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,7 +34,6 @@ const LoginPage = () => {
 
     try {
       if (isLogin) {
-        // Login - use email as username
         const response = await authApi.login(formData.email, formData.password);
         storeAuthData(response);
         toast({
@@ -42,7 +41,6 @@ const LoginPage = () => {
           description: `Logged in as ${response.user.username || response.user.email}`,
         });
       } else {
-        // Register
         const response = await authApi.register({
           username: formData.username || formData.email.split('@')[0],
           email: formData.email,
@@ -53,19 +51,14 @@ const LoginPage = () => {
         storeAuthData(response);
         toast({
           title: "Account created!",
-          description: "Welcome to CarFinder!",
+          description: "Welcome to CarMarket!",
         });
       }
       navigate("/");
     } catch (error: any) {
-      let message = "Authentication failed. Please try again.";
-      if (error?.message) {
-        message = error.message;
-      } else if (error?.response?.data?.detail) {
-        message = error.response.data.detail;
-      }
+      const message = error?.response?.data?.detail || "Authentication failed. Please try again.";
       toast({
-        title: isLogin ? "Login Failed" : "Registration Failed",
+        title: "Error",
         description: message,
         variant: "destructive",
       });
@@ -77,19 +70,29 @@ const LoginPage = () => {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left side - Form */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md space-y-8">
+      <div className="flex-1 relative flex items-center justify-center p-8">
+        
+        {/* Back to Home */}
+        <Link
+          to="/"
+          className="absolute top-4 left-8 inline-flex items-center gap-1.5 text-sm font-medium text-slate-800 transition-all duration-200 hover:text-[#0E317D] hover:underline hover:scale-105 z-10"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Home page
+        </Link>
+
+        {/* Thêm mt-12 để đảm bảo form luôn cách xa nút Back ở phía trên */}
+        <div className="w-full max-w-md space-y-8 mt-12">
           {/* Logo */}
-          <Link to="/" className="inline-flex items-center gap-2 text-foreground group">
-            <Car className="h-8 w-8 text-primary" />
-            <span className="font-heading text-2xl font-semibold">
-              CarFinder
+          <Link to="/" className="inline-flex items-center gap-2 group">
+            <span className="font-sansita text-4xl font-extrabold text-slate-900">
+              Car<span className="text-[#0E317D]">Market</span>
             </span>
           </Link>
 
           {/* Header */}
           <div>
-            <h1 className="font-heading text-3xl font-semibold text-foreground mb-2">
+            <h1 className="font-poppins text-3xl font-semibold text-foreground mb-2">
               {isLogin ? "Welcome back" : "Create account"}
             </h1>
             <p className="text-muted-foreground">
@@ -187,8 +190,8 @@ const LoginPage = () => {
             )}
 
             <Button 
-              type="submit" 
-              className="w-full h-12 rounded-xl bg-accent hover:bg-gold-dark text-accent-foreground shadow-gold font-medium text-base" 
+              type="submit"
+              className="w-full h-12 rounded-xl bg-[#0E317D] hover:bg-[#0E317D]/85 hover:shadow-lg text-white font-medium text-base transition-all duration-200"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -239,7 +242,7 @@ const LoginPage = () => {
             <button
               type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-accent font-medium hover:underline"
+              className="text-[#0E317D] font-medium hover:underline"
             >
               {isLogin ? "Sign Up" : "Sign In"}
             </button>
@@ -259,14 +262,8 @@ const LoginPage = () => {
         
         {/* Content overlay */}
         <div className="absolute bottom-16 left-16 right-16">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/20 backdrop-blur-sm border border-accent/30 mb-6">
-            <span className="w-2 h-2 rounded-full bg-accent" />
-            <span className="text-sm text-foreground font-medium">
-              15,000+ Premium Vehicles
-            </span>
-          </div>
-          <h2 className="font-heading text-4xl font-semibold text-foreground mb-4">
-            Discover Your <span className="text-gradient-gold">Dream Car</span>
+          <h2 className="font-poppins text-4xl font-semibold text-foreground mb-4">
+            Discover Your <span className="text-[#0E317D]">Dream Car</span>
           </h2>
           <p className="text-muted-foreground text-lg max-w-md">
             Join thousands of satisfied buyers and sellers in our premium automotive marketplace.
