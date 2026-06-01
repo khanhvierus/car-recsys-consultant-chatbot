@@ -53,6 +53,7 @@ class RecoConfig:
     max_per_model: int = 2
     top_k: int = 20
     candidate_pool_size: int = 300
+    cf_warmup_threshold: int = 20
     candidates: CandidateConfig = field(default_factory=CandidateConfig)
 
     def interaction_weight(self, interaction_type: str) -> float:
@@ -109,5 +110,6 @@ def get_reco_config() -> RecoConfig:
         max_per_model=reranker.get("max_per_model", 2),
         top_k=raw.get("top_k", 20),
         candidate_pool_size=raw.get("candidate_pool_size", 300),
+        cf_warmup_threshold=raw.get("ranker", {}).get("cf_warmup_threshold", 20),
         candidates=candidates,
     )

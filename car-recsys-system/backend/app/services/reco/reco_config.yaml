@@ -44,6 +44,8 @@ ranker:
     price_fit: 1.0       # closeness to the user's budget
     model_rating: 0.8    # cars.com consumer rating of the model
     recency: 0.5         # freshness of the listing crawl
+  # CF signal is scaled to 0 at 0 interactions and ramps to full at this many.
+  cf_warmup_threshold: 20
 
 # --- Re-ranking (stage 3) -------------------------------------------------
 reranker:
