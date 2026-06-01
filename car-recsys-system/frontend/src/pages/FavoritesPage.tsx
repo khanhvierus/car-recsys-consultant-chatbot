@@ -1,13 +1,24 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
+import { useQuery } from "@tanstack/react-query";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import VehicleCard from "@/components/VehicleCard";
 import { useFavorites } from "@/hooks/useApi";
-import { isAuthenticated, getCurrentUser } from "@/lib/api";
+import { isAuthenticated, getCurrentUser, vehiclesApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Loader2, Heart, ArrowLeft } from "lucide-react";
+
+function FavoriteVehicleCard({ vehicleId, onToggle }: { vehicleId: string; onToggle: () => void }) {
+  const { data: vehicle } = useQuery({
+    queryKey: ["vehicle", "favorite", vehicleId],
+    queryFn: () => vehiclesApi.getById(vehicleId),
+    staleTime: 1000 * 60 * 10,
+  });
+  if (!vehicle) return null;
+  return <VehicleCard vehicle={vehicle as any} onFavoriteToggle={onToggle} />;
+}
 
 export default function FavoritesPage() {
   const navigate = useNavigate();
@@ -137,10 +148,10 @@ export default function FavoritesPage() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {favorites.map((favorite) => (
-                  <VehicleCard
+                  <FavoriteVehicleCard
                     key={`${favorite.vehicle_id}-${refreshKey}`}
-                    vehicle={favorite.vehicle as any}
-                    onFavoriteToggle={handleFavoriteToggle}
+                    vehicleId={favorite.vehicle_id}
+                    onToggle={handleFavoriteToggle}
                   />
                 ))}
               </div>

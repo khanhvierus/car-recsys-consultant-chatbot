@@ -17,8 +17,10 @@ export default function VehicleCard({ vehicle, onFavoriteToggle }: VehicleCardPr
   const addFavorite = useAddFavorite();
   const removeFavorite = useRemoveFavorite();
   
-  const isFavorite = favorites?.some(f => f.vehicle_id === vehicle.vehicle_id) ?? false;
-  
+  const isFavorite = !!vehicle && (favorites?.some(f => f.vehicle_id === vehicle.vehicle_id) ?? false);
+
+  if (!vehicle) return null;
+
   // Generate placeholder images
   const getPlaceholderImage = () => {
     const carImages = [
