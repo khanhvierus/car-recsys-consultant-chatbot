@@ -28,14 +28,11 @@ from chatbot_2.user_profile import (
 load_dotenv()
 
 # DB Init
-DB_CONNECTION_STRING = os.getenv("DB_CONNECTION_STRING")
-db_engine = create_engine(DB_CONNECTION_STRING, pool_size=10, max_overflow=20)
+WAREHOUSE_DSN = os.getenv("WAREHOUSE_DSN") or os.getenv("DATABASE_URL")
+db_engine = create_engine(WAREHOUSE_DSN, pool_size=10, max_overflow=20)
 
 CHROMA_PATH = "chroma_db"
 COLLECTION_NAME = "car_vectorize"
-
-# Main SQL view used for exact brand/model lookups
-MAIN_VIEW = os.getenv("MAIN_POST", "[dbo].[view_post_info]")
 
 
 """
@@ -99,57 +96,51 @@ WHERE ppi.main_image = 1
 """
 
 # --- Helper Functions ---
-def get_image_urls(view_name: str, vin_query: str, max_images: int = 3):
-    urls = []
+def get_image_urls(vin_query: str, max_images: int = 3):
     with db_engine.connect() as con:
-        query = text(f"SELECT image_link FROM {view_name} WHERE VIN = :vin_param")
-        result = con.execute(query, {"vin_param": vin_query})
-        urls = [row[0] for row in result]
-    return urls[:max_images]
+        rows = con.execute(
+            text("""
+                SELECT image_url FROM gold.vehicle_images
+                WHERE vehicle_id = :vin ORDER BY image_order LIMIT :n
+            """),
+            {"vin": vin_query, "n": max_images},
+        ).all()
+    return [r[0] for r in rows if r[0]]
 
-def get_feature(view_name: str, vin_query: str):
-    # dùng defaultdict(list) để auto tạo list rỗng cho mỗi key mới
+
+def get_feature(vin_query: str):
     feature = defaultdict(list)
-
     with db_engine.connect() as con:
-        query = text(f"""
-            SELECT feature_type, feature_name
-            FROM {view_name}
-            WHERE VIN = :vin_param
-        """)
-        result = con.execute(query, {"vin_param": vin_query})
-
-        for feature_type, feature_name in result:
-            if feature_name not in feature[feature_type]:
-                feature[feature_type].append(feature_name)
-
+        rows = con.execute(
+            text("""
+                SELECT feature_category, feature_name FROM gold.vehicle_features
+                WHERE vehicle_id = :vin AND feature_name IS NOT NULL
+            """),
+            {"vin": vin_query},
+        ).all()
+    for cat, name in rows:
+        if name not in feature[cat or "Other"]:
+            feature[cat or "Other"].append(name)
     return dict(feature)
 
 def get_avg_price(brand: str = None, model: str = None):
-    conditions = ["p.price IS NOT NULL", "p.price > 0"]
+    conditions = ["price IS NOT NULL", "price > 0"]
     params = {}
-
     if brand:
-        conditions.append("b.brand = :brand")
+        conditions.append("brand = :brand")
         params["brand"] = brand
     if model:
-        conditions.append("c.car_name LIKE :model")
+        conditions.append("(car_name ILIKE :model OR title ILIKE :model)")
         params["model"] = f"%{model}%"
-
     query = text(f"""
-        SELECT AVG(p.price) as avg_price, MIN(p.price) as min_price,
-            MAX(p.price) as max_price, COUNT(DISTINCT p.VIN) as total
-        FROM post.Post p
-        JOIN core.Car c ON p.car_model = c.car_model
-        JOIN core.Brand b ON c.brand_id = b.brand_id
+        SELECT AVG(price) AS avg_price, MIN(price) AS min_price,
+               MAX(price) AS max_price, COUNT(DISTINCT vin) AS total
+        FROM gold.vehicles
         WHERE {' AND '.join(conditions)}
     """)
-
     with db_engine.connect() as con:
         row = con.execute(query, params).mappings().first()
-        if row:
-            return dict(row)
-    return {}
+        return dict(row) if row else {}
 
 
 def format_docs(docs):
@@ -157,8 +148,6 @@ def format_docs(docs):
         return "No relevant car listings found."
 
     formatted = ""
-    feature_view = os.getenv("FEATURE_POST")  
-    image_view = os.getenv("IMAGE_POST")      
 
     for i, (doc, score) in enumerate(docs, 1):
         if score > 1.3:
@@ -168,14 +157,14 @@ def format_docs(docs):
         vin = meta.get("VIN", "N/A")
 
         # image URLS
-        images = get_image_urls(image_view, vin, 3)
+        images = get_image_urls(vin, 3)
         if images:
             img_str = "\n".join([f"- {u}" for u in images])
         else:
             img_str = "- No images available"
 
         # Post Feature
-        features = get_feature(feature_view, vin) if feature_view else {}
+        features = get_feature(vin)
         if features:
             feature_lines = []
             for f_type, f_names in features.items():
@@ -266,17 +255,17 @@ def sql_search_cars(brand=None, model=None, constraints=None, exclude_brands=Non
         conditions.append("brand = :brand")
         params["brand"] = brand
     if model:
-        conditions.append("title LIKE :model")
+        conditions.append("title ILIKE :model")
         params["model"] = f"%{model}%"
     for i, excluded in enumerate(exclude_brands or []):
         conditions.append(f"brand <> :exb{i}")
         params[f"exb{i}"] = excluded
     if constraints:
         if constraints.status:
-            conditions.append("status LIKE :status")
+            conditions.append("new_used ILIKE :status")
             params["status"] = f"%{constraints.status}%"
         if constraints.fuel_type:
-            conditions.append("fuel_type LIKE :fuel_type")
+            conditions.append("fuel_type ILIKE :fuel_type")
             params["fuel_type"] = f"%{constraints.fuel_type}%"
         if constraints.price_min is not None:
             conditions.append("price >= :price_min")
@@ -285,17 +274,19 @@ def sql_search_cars(brand=None, model=None, constraints=None, exclude_brands=Non
             conditions.append("price <= :price_max")
             params["price_max"] = constraints.price_max
         if constraints.year:
-            conditions.append("title LIKE :year")
+            conditions.append("title ILIKE :year")
             params["year"] = f"%{constraints.year}%"
 
     query = text(f"""
-        SELECT DISTINCT TOP (:limit)
-            VIN, status, title, brand, exterior_color, interior_color,
-            drivetrain, fuel_type, transmission, engine, price,
-            monthly_payment, mileage, mpg, post_link
-        FROM {MAIN_VIEW}
+        SELECT DISTINCT
+            vin AS "VIN", new_used AS status, title, brand,
+            exterior_color, interior_color, drivetrain, fuel_type,
+            transmission, engine, price, monthly_payment, mileage, mpg,
+            vehicle_url AS post_link
+        FROM gold.vehicles
         WHERE {' AND '.join(conditions)}
         ORDER BY price ASC
+        LIMIT :limit
     """)
 
     with db_engine.connect() as con:
@@ -306,8 +297,6 @@ def format_sql_cars(rows):
     if not rows:
         return "No matching car listings found in the database."
 
-    feature_view = os.getenv("FEATURE_POST")
-    image_view = os.getenv("IMAGE_POST")
     formatted = ""
 
     seen_models = {}
@@ -325,10 +314,10 @@ def format_sql_cars(rows):
         else:
             price_stats = seen_models[model_key]
 
-        images = get_image_urls(image_view, vin, 3) if image_view else []
+        images = get_image_urls(vin, 3)
         img_str = "\n".join(f"- {u}" for u in images) or "- No images available"
 
-        features = get_feature(feature_view, vin) if feature_view else {}
+        features = get_feature(vin)
         if features:
             feature_str = "\n".join(
                 f"- {f_type}: {', '.join(f_names)}"
@@ -622,8 +611,6 @@ Reply in the same language the customer is using.
     def spec_retrieve(state: AgenticState):
         brand = state.get("brand")
         model = state.get("model")
-        feature_view = os.getenv("FEATURE_POST")
-        image_view = os.getenv("IMAGE_POST")
 
         rows = sql_search_cars(brand=brand, model=model, limit=3)
 
@@ -634,7 +621,7 @@ Reply in the same language the customer is using.
         for i, row in enumerate(rows, 1):
             vin = row.get("VIN", "N/A")
 
-            features = get_feature(feature_view, vin) if feature_view else {}
+            features = get_feature(vin)
             if features:
                 feature_str = "\n".join(
                     f"  - {f_type}: {', '.join(f_names)}"
@@ -643,7 +630,7 @@ Reply in the same language the customer is using.
             else:
                 feature_str = "  - No feature data"
 
-            images = get_image_urls(image_view, vin, 3) if image_view else []
+            images = get_image_urls(vin, 3)
             img_str = "\n".join(f"  - {u}" for u in images) or "  - No images"
 
             spec_parts.append(
@@ -1027,8 +1014,6 @@ Reply in the same language the customer is using.
                 "messages": [],
             }
 
-        feature_view = os.getenv("FEATURE_POST")
-        image_view = os.getenv("IMAGE_POST")
         compare_parts = []
         not_found = []
 
@@ -1055,7 +1040,7 @@ Reply in the same language the customer is using.
             max_price = price_stats.get("max_price") or listing_price
             total_listings = price_stats.get("total") or 1
 
-            features = get_feature(feature_view, vin) if feature_view else {}
+            features = get_feature(vin)
             if features:
                 feature_str = "\n".join(
                     f"    - {f_type}: {', '.join(f_names)}"
@@ -1064,7 +1049,7 @@ Reply in the same language the customer is using.
             else:
                 feature_str = "    - No feature data"
 
-            images = get_image_urls(image_view, vin, 2) if image_view else []
+            images = get_image_urls(vin, 2)
             img_str = "\n".join(f"    - {u}" for u in images) or "    - No images"
 
             compare_parts.append(
