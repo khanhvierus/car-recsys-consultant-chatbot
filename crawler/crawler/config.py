@@ -10,10 +10,13 @@ from pathlib import Path
 
 # ── Target site ──────────────────────────────────────────────────────────────
 SITE_BASE: str = os.getenv("SITE_BASE", "https://www.cars.com")
+# NOTE: do NOT add `deal_ratings[]=good` — cars.com only assigns deal ratings to
+# Used/Certified listings, so that filter silently excludes ALL New cars. Use
+# stock_type=all to include New + Used + Certified.
 RESULTS_URL_TMPL: str = os.getenv(
     "RESULTS_URL_TMPL",
     "https://www.cars.com/shopping/results/"
-    "?deal_ratings%5B%5D=good&zip=60606"
+    "?stock_type=all&zip=60606"
     "&maximum_distance=9999&sort=best_match_desc&page={page}",
 )
 USER_AGENT: str = os.getenv(
