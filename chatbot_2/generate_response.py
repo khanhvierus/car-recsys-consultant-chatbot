@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
-from langchain_chroma import Chroma
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -31,8 +32,9 @@ load_dotenv()
 WAREHOUSE_DSN = os.getenv("WAREHOUSE_DSN") or os.getenv("DATABASE_URL")
 db_engine = create_engine(WAREHOUSE_DSN, pool_size=10, max_overflow=20)
 
-CHROMA_PATH = "chroma_db"
-COLLECTION_NAME = "car_vectorize"
+COLLECTION_NAME = os.getenv("CHATBOT_QDRANT_COLLECTION", "car_vectorize")
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 
 """
@@ -1154,10 +1156,11 @@ def initialize_resources():
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
 
-    vector_store = Chroma(
+    client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
+    vector_store = QdrantVectorStore(
+        client=client,
         collection_name=COLLECTION_NAME,
-        embedding_function=embeddings,
-        persist_directory=CHROMA_PATH,
+        embedding=embeddings,
     )
 
     global _AGENTIC_APP
