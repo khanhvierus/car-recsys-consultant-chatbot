@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { chatApi, ChatMessage, Vehicle, formatPrice, isAuthenticated } from '@/lib/api';
+import { chatApi, Vehicle, formatPrice, isAuthenticated } from '@/lib/api';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -25,7 +25,7 @@ export default function ChatPopup() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [showVehicles, setShowVehicles] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,18 +71,18 @@ export default function ChatPopup() {
     setIsLoading(true);
 
     try {
-      const response = await chatApi.sendMessage(userMessage.content, conversationId || undefined);
-      
-      if (response.conversation_id) {
-        setConversationId(response.conversation_id);
+      const response = await chatApi.sendMessage(userMessage.content, sessionId || undefined);
+
+      // Server assigns a session_id on the first turn; reuse it for context.
+      if (response.session_id) {
+        setSessionId(response.session_id);
       }
 
       const assistantMessage: Message = {
-        id: response.message_id,
+        id: `${Date.now()}-a`,
         role: 'assistant',
-        content: response.response,
-        vehicles: response.vehicles,
-        timestamp: new Date(response.timestamp)
+        content: response.answer,
+        timestamp: new Date()
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -97,7 +97,7 @@ export default function ChatPopup() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, conversationId]);
+  }, [input, isLoading, sessionId]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -107,8 +107,12 @@ export default function ChatPopup() {
   };
 
   const clearChat = () => {
+    // Best-effort: clear the server-side session (history + profile) too.
+    if (sessionId) {
+      chatApi.reset(sessionId).catch(() => { /* ignore — local reset is enough */ });
+    }
     setMessages([]);
-    setConversationId(null);
+    setSessionId(null);
   };
 
   const toggleVehicles = (messageId: string) => {

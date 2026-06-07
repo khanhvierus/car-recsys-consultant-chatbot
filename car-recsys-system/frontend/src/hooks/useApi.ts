@@ -7,7 +7,6 @@ import {
   recommendationsApi,
   interactionsApi,
   authApi,
-  chatApi,
   SearchParams,
   SearchResponse,
   Vehicle,
@@ -17,9 +16,6 @@ import {
   Favorite,
   User,
   AuthResponse,
-  ChatConversation,
-  ChatMessage,
-  ChatResponse,
   Review,
   Seller,
   storeAuthData,
@@ -289,67 +285,8 @@ export function useLogout() {
 }
 
 // ============== CHAT HOOKS ==============
-
-export const chatKeys = {
-  conversations: ['chat', 'conversations'] as const,
-  conversation: (id: string) => ['chat', 'conversation', id] as const,
-};
-
-/**
- * Get user's chat conversations
- */
-export function useChatConversations(limit = 20) {
-  return useQuery<ChatConversation[]>({
-    queryKey: chatKeys.conversations,
-    queryFn: () => chatApi.getConversations(limit),
-    staleTime: 1000 * 60 * 2, // 2 minutes
-  });
-}
-
-/**
- * Get messages for a specific conversation
- */
-export function useChatMessages(conversationId: string | null) {
-  return useQuery<ChatMessage[]>({
-    queryKey: chatKeys.conversation(conversationId || ''),
-    queryFn: () => chatApi.getConversationMessages(conversationId!),
-    enabled: !!conversationId,
-    staleTime: 1000 * 60 * 1, // 1 minute
-  });
-}
-
-/**
- * Send a chat message
- */
-export function useSendMessage() {
-  const queryClient = useQueryClient();
-
-  return useMutation<ChatResponse, Error, { message: string; conversationId?: string }>({
-    mutationFn: ({ message, conversationId }) => 
-      chatApi.sendMessage(message, conversationId),
-    onSuccess: (data) => {
-      // Invalidate conversations list
-      queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
-      // Invalidate specific conversation messages
-      if (data.conversation_id) {
-        queryClient.invalidateQueries({ 
-          queryKey: chatKeys.conversation(data.conversation_id) 
-        });
-      }
-    },
-  });
-}
-
-/**
- * Delete a chat conversation
- */
-export function useDeleteConversation() {
-  const queryClient = useQueryClient();
-
-  return useMutation<void, Error, string>({
-    mutationFn: chatApi.deleteConversation,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
-    },
-  });
-}
+// The chatbot is now the agentic POST /api/v1/chat (in-memory sessions). It has
+// no conversation-list / message-history / delete endpoints, so the old
+// useChatConversations / useChatMessages / useSendMessage / useDeleteConversation
+// hooks were removed. Components call chatApi.sendMessage / chatApi.reset directly
+// (see ChatPage.tsx and ChatPopup.tsx) and keep session_id in local state.

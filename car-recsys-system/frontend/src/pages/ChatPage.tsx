@@ -3,18 +3,16 @@
  * Provides a dedicated chat experience with conversation history
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  MessageCircle, Send, Loader2, Car, Plus, Trash2, 
-  ChevronLeft, Clock, Search, ExternalLink 
+import {
+  Send, Loader2, Car, Plus, ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Separator } from '@/components/ui/separator';
-import { 
-  chatApi, ChatMessage, ChatConversation, Vehicle, 
-  formatPrice, formatMileage, isAuthenticated, getCurrentUser 
+import {
+  chatApi, Vehicle,
+  formatPrice, formatMileage, getCurrentUser
 } from '@/lib/api';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -32,10 +30,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const user = getCurrentUser();
@@ -47,16 +42,9 @@ export default function ChatPage() {
     }
   }, [messages]);
 
-  // Load conversations on mount
-  useEffect(() => {
-    if (isAuthenticated()) {
-      loadConversations();
-    }
-  }, []);
-
   // Load welcome message for new conversation
   useEffect(() => {
-    if (messages.length === 0 && !conversationId) {
+    if (messages.length === 0 && !sessionId) {
       setMessages([{
         id: 'welcome',
         role: 'assistant',
@@ -64,54 +52,15 @@ export default function ChatPage() {
         timestamp: new Date()
       }]);
     }
-  }, [messages.length, conversationId]);
-
-  const loadConversations = async () => {
-    setLoadingConversations(true);
-    try {
-      const convs = await chatApi.getConversations();
-      setConversations(convs);
-    } catch (error) {
-      console.error('Failed to load conversations:', error);
-    } finally {
-      setLoadingConversations(false);
-    }
-  };
-
-  const loadConversation = async (convId: string) => {
-    setIsLoading(true);
-    try {
-      const msgs = await chatApi.getConversationMessages(convId);
-      setMessages(msgs.map(m => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        vehicles: m.vehicles,
-        timestamp: new Date(m.created_at)
-      })));
-      setConversationId(convId);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [messages.length, sessionId]);
 
   const startNewConversation = () => {
-    setConversationId(null);
-    setMessages([]);
-  };
-
-  const deleteConversation = async (convId: string) => {
-    try {
-      await chatApi.deleteConversation(convId);
-      setConversations(prev => prev.filter(c => c.conversation_id !== convId));
-      if (conversationId === convId) {
-        startNewConversation();
-      }
-    } catch (error) {
-      console.error('Failed to delete conversation:', error);
+    // Clear the server-side session (history + profile) for a fresh start.
+    if (sessionId) {
+      chatApi.reset(sessionId).catch(() => { /* ignore — local reset is enough */ });
     }
+    setSessionId(null);
+    setMessages([]);
   };
 
   const handleSend = useCallback(async () => {
@@ -129,22 +78,18 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const response = await chatApi.sendMessage(userMessage.content, conversationId || undefined);
-      
-      if (response.conversation_id && !conversationId) {
-        setConversationId(response.conversation_id);
-        // Refresh conversation list
-        if (isAuthenticated()) {
-          loadConversations();
-        }
+      const response = await chatApi.sendMessage(userMessage.content, sessionId || undefined);
+
+      // Server assigns a session_id on the first turn; reuse it for context.
+      if (response.session_id) {
+        setSessionId(response.session_id);
       }
 
       const assistantMessage: Message = {
-        id: response.message_id,
+        id: `${Date.now()}-a`,
         role: 'assistant',
-        content: response.response,
-        vehicles: response.vehicles,
-        timestamp: new Date(response.timestamp)
+        content: response.answer,
+        timestamp: new Date()
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -159,28 +104,13 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, conversationId]);
+  }, [input, isLoading, sessionId]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
-
-  const formatRelativeTime = (date: string) => {
-    const now = new Date();
-    const msgDate = new Date(date);
-    const diffMs = now.getTime() - msgDate.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return msgDate.toLocaleDateString();
   };
 
   // Quick suggestion prompts
@@ -196,103 +126,28 @@ export default function ChatPage() {
       <Header />
       
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar - Conversation History */}
-        {isAuthenticated() && (
-          <div className={cn(
-            "w-72 border-r bg-muted/30 flex flex-col transition-all duration-300",
-            !showSidebar && "w-0 border-r-0"
-          )}>
-            {showSidebar && (
-              <>
-                <div className="p-4 border-b">
-                  <Button
-                    onClick={startNewConversation}
-                    className="w-full gap-2"
-                    variant="outline"
-                  >
-                    <Plus className="h-4 w-4" />
-                    New Conversation
-                  </Button>
-                </div>
-                
-                <ScrollArea className="flex-1">
-                  <div className="p-2 space-y-1">
-                    {loadingConversations ? (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : conversations.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No conversations yet
-                      </p>
-                    ) : (
-                      conversations.map((conv) => (
-                        <div
-                          key={conv.conversation_id}
-                          className={cn(
-                            "group flex items-center gap-2 p-3 rounded-lg cursor-pointer transition-colors",
-                            "hover:bg-accent",
-                            conversationId === conv.conversation_id && "bg-accent"
-                          )}
-                          onClick={() => loadConversation(conv.conversation_id)}
-                        >
-                          <MessageCircle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate">
-                              {conv.preview || 'New conversation'}
-                            </p>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Clock className="h-3 w-3" />
-                              {formatRelativeTime(conv.updated_at)}
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteConversation(conv.conversation_id);
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col">
           {/* Chat Header */}
           <div className="h-14 border-b flex items-center px-4 gap-3">
-            {isAuthenticated() && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSidebar(!showSidebar)}
-                className="md:hidden"
-              >
-                <ChevronLeft className={cn(
-                  "h-5 w-5 transition-transform",
-                  !showSidebar && "rotate-180"
-                )} />
-              </Button>
-            )}
             <Avatar className="h-8 w-8 bg-primary">
               <AvatarFallback className="bg-primary text-primary-foreground">
                 <Car className="h-4 w-4" />
               </AvatarFallback>
             </Avatar>
-            <div>
+            <div className="flex-1">
               <h2 className="font-semibold">Car Shopping Assistant</h2>
               <p className="text-xs text-muted-foreground">Powered by AI</p>
             </div>
+            <Button
+              onClick={startNewConversation}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              New Chat
+            </Button>
           </div>
 
           {/* Messages */}

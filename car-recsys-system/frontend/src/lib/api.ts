@@ -1,19 +1,22 @@
 // --- Chat API ---
+// Backend is the agentic LangGraph at POST /api/v1/chat. Sessions are in-memory
+// per session_id (the server keeps history + profile), so the client only sends
+// {session_id?, message, reset?} and gets back {session_id, answer}. There is no
+// server-side conversation list / message history endpoint anymore.
+export interface ChatResponse {
+  session_id: string;
+  answer: string;
+}
+
 export const chatApi = {
-  async sendMessage(message: string, conversationId?: string) {
-    const response = await api.post("/chat/send", { message, conversation_id: conversationId });
+  async sendMessage(message: string, sessionId?: string): Promise<ChatResponse> {
+    const response = await api.post("/chat", { message, session_id: sessionId });
     return response.data;
   },
-  async getConversations(limit = 20) {
-    const response = await api.get("/chat/conversations", { params: { limit } });
+  // Clear the server-side session (history + slot-filled profile) for a fresh start.
+  async reset(sessionId: string): Promise<ChatResponse> {
+    const response = await api.post("/chat", { message: "reset", session_id: sessionId, reset: true });
     return response.data;
-  },
-  async getConversationMessages(conversationId: string) {
-    const response = await api.get(`/chat/conversations/${conversationId}/messages`);
-    return response.data;
-  },
-  async deleteConversation(conversationId: string) {
-    await api.delete(`/chat/conversations/${conversationId}`);
   },
 };
 
