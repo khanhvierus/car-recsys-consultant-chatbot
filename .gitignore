@@ -43,3 +43,9 @@ dist/
 
 # Visual companion brainstorm mockups (local only)
 .superpowers/
+
+# --- docs: keep only the architecture docs in git, ignore the rest ---
+# (loose runbooks + superpowers specs/plans stay local-only)
+docs/*
+!docs/architecture/
+!docs/architecture/**

@@ -8,9 +8,13 @@ VSCode (extension *Markdown Preview Mermaid*), hoặc Notion. Đã verify render
 > *iconify*** (mermaid.live) — GitHub README sẽ hiện dấu `?`. Vì vậy các diagram dưới
 > dùng **màu + label** để render đẹp ở mọi nơi.
 
+> **Hai môi trường:** Diagram **#1** mô tả stack **local dev** (`docker compose up`).
+> Diagram **#9** mô tả **production trên GCP** (AlloyDB · Cloud Run · Temporal Cloud ·
+> Qdrant Cloud · domain `carsalesfinder.com`). Data model (#3, #6–#8) giống nhau ở cả hai.
+
 ---
 
-## 1. Kiến trúc tổng thể
+## 1. Kiến trúc tổng thể (local dev)
 
 ```mermaid
 %%{init: {'flowchart': {'curve': 'stepAfter'}}}%%
@@ -84,7 +88,7 @@ flowchart TB
 
   crawl --- crawlsteps["crawl_links → scrape_details → upload_gcs<br/>(dt=YYYY-MM-DD/ on GCS)"]:::note
   transform --- transteps["load_bronze → ensure_partition →<br/>dbt_build → refresh_matviews"]:::note
-  ml --- mlsteps["compute_item_similarity ∥<br/>embed_vehicles → Qdrant"]:::note
+  ml --- mlsteps["compute_item_similarity ∥ embed_vehicles ∥<br/>embed_chatbot_vehicles (3 song song → Qdrant)"]:::note
 
   classDef sched fill:#fff3bf,stroke:#f59e0b,color:#000
   classDef orch fill:#d0bfff,stroke:#8b5cf6,color:#000
@@ -160,30 +164,46 @@ flowchart LR
 
 ---
 
-## 5. Chatbot — RAG hybrid retrieval
+## 5. Chatbot — agentic LangGraph (chatbot v2)
+
+Chatbot là **agentic graph** (LangChain + LangGraph) chạy trong backend tại
+`POST /api/v1/chat` `{session_id?, message, reset?}` → `{session_id, answer}`.
+State (history + slot-filled profile) **in-memory per session_id** (Cloud Run
+`--max-instances=1`). Retrieval đọc Qdrant collection **`car_vectorize`** (chunked
+docs, `text-embedding-3-large` 3072) + `gold.*` trên AlloyDB. Khác hẳn bản RAG cũ
+(query_parser → SQL∥Qdrant → RRF) — giờ là **profile slot-fill → route_intent →
+nhánh chuyên biệt**.
 
 ```mermaid
 %%{init: {'flowchart': {'curve': 'stepAfter'}}}%%
-flowchart LR
-  umsg["user message"]:::host
-  parser["query_parser<br/>(hard constraints)"]:::rank
-  sql["SQL filter<br/>gold.vehicles WHERE"]:::gold
-  vec["Qdrant vector<br/>(payload filter)"]:::vec
-  rrf["RRF fusion<br/>(merge ranks)"]:::rank
-  gen["gpt-4o-mini<br/>grounded · cite VIN"]:::orch
+flowchart TB
+  umsg["POST /api/v1/chat<br/>{session_id?, message}"]:::host
+  profile["profile slot-fill<br/>(budget/type/fuel/brand…)<br/>in-mem per session_id"]:::rank
+  route{{"route_intent"}}:::orch
 
-  umsg --> parser
-  parser --> sql
-  parser --> vec
-  sql --> rrf
-  vec --> rrf
-  rrf --> gen
+  umsg --> profile --> route
+
+  subgraph BRANCHES["nhánh theo intent"]
+    compare["compare<br/>(so sánh 2+ xe)"]:::recall
+    analytics["analytics<br/>(top_features · gold SQL)"]:::gold
+    spec["spec<br/>(hỏi thông số 1 xe)"]:::recall
+    hybrid["hybrid retrieve<br/>(Qdrant car_vectorize + gold)"]:::vec
+    redirect["redirect_topic<br/>(ngoài phạm vi xe)"]:::note
+  end
+  route --> compare & analytics & spec & hybrid & redirect
+
+  gen["gpt-4o-mini<br/>grounded answer · cite xe thật"]:::orch
+  compare & analytics & spec & hybrid & redirect --> gen
+  gen --> ans["{session_id, answer}<br/>history[sid] updated in-mem"]:::out
 
   classDef host fill:#a5d8ff,stroke:#4a9eed,color:#000
   classDef rank fill:#fff3bf,stroke:#f59e0b,color:#000
   classDef gold fill:#b2f2bb,stroke:#22c55e,color:#000
   classDef vec fill:#eebefa,stroke:#ec4899,color:#000
   classDef orch fill:#d0bfff,stroke:#8b5cf6,color:#000
+  classDef recall fill:#d0bfff,stroke:#8b5cf6,color:#000
+  classDef out fill:#b2f2bb,stroke:#22c55e,color:#000
+  classDef note fill:#f8f9fa,stroke:#adb5bd,color:#000
 ```
 
 ---
@@ -440,16 +460,19 @@ flowchart LR
   interactions["gold.user_interactions<br/>(app ghi: view/click/save...)"]:::store
   itemsim["gold.item_similarity<br/>(ML precompute CF)"]:::store
   popmv["gold.mv_popular_vehicles<br/>(matview)"]:::store
-  qdrant["Qdrant car-vectors<br/>point_id=uuid5(vin)<br/>payload: brand/price/fuel/rating"]:::vec
+  qdrant["Qdrant <b>car_chatbot_vectors</b><br/>(reco) point_id=uuid5(vin)<br/>1 vector/VIN · embed_vehicles"]:::vec
+  qdrant2["Qdrant <b>car_vectorize</b><br/>(chatbot v2) chunked docs<br/>embed_chatbot_vehicles (recreate)"]:::vec
   vehicles["gold.vehicles"]:::gold
 
   interactions -->|"ML: cosine CF"| itemsim
-  vehicles -->|"ML: embed"| qdrant
+  vehicles -->|"ML: embed_vehicles"| qdrant
+  vehicles -->|"ML: embed_chatbot_vehicles"| qdrant2
 
   itemsim --> collab["CollaborativeRecaller"]:::recall
   vehicles --> content["ContentRecaller"]:::recall
   qdrant --> vecr["VectorRecaller"]:::recall
   popmv --> popr["PopularityRecaller"]:::recall
+  qdrant2 --> chatbot["Chatbot v2 (LangGraph)<br/>POST /api/v1/chat"]:::orch
   collab & content & vecr & popr --> ranker["Ranker → MMR → top-K"]:::rank
 
   classDef store fill:#c3fae8,stroke:#06b6d4,color:#000
@@ -457,4 +480,57 @@ flowchart LR
   classDef gold fill:#b2f2bb,stroke:#22c55e,color:#000
   classDef recall fill:#d0bfff,stroke:#8b5cf6,color:#000
   classDef rank fill:#ffd8a8,stroke:#f59e0b,color:#000
+  classDef orch fill:#d0bfff,stroke:#8b5cf6,color:#000
+```
+
+---
+
+## 9. Production deployment (GCP)
+
+Live tại **`https://carsalesfinder.com`** (custom domain → Cloud Run `car-frontend`).
+Khác stack local (#1): Postgres → **AlloyDB**, docker-compose → **Cloud Run** (backend +
+frontend) + **GCE VM** (pipeline-worker) → **Temporal Cloud**, Qdrant local → **Qdrant Cloud**.
+
+```mermaid
+%%{init: {'flowchart': {'curve': 'stepAfter'}}}%%
+flowchart TB
+  user["👤 user<br/>carsalesfinder.com"]:::ext
+
+  subgraph CR["☁️ Cloud Run (us-central1)"]
+    fe["car-frontend<br/>nginx + React dist<br/>proxy /api → backend"]:::ui
+    be["car-backend (FastAPI)<br/>reco + chatbot v2<br/>--max-instances=1"]:::api
+  end
+
+  subgraph DATA["managed data"]
+    alloy["AlloyDB PG17<br/>gold.* (5337 vehicles)<br/>public IP + SSL"]:::gold
+    qc["Qdrant Cloud<br/>car_chatbot_vectors (reco)<br/>car_vectorize (chatbot)"]:::vec
+    oai["OpenAI API<br/>gpt-4o-mini · embeddings"]:::ext
+  end
+
+  subgraph VM["🖥️ GCE VM temporal-worker"]
+    pw["pipeline-worker<br/>transform + ML activities"]:::orch
+  end
+  tcloud["Temporal Cloud<br/>ns car-recsys.islko<br/>(API-key auth)"]:::orch
+  host["🖥️ HOST run_worker.sh<br/>crawl (Chrome+Xvfb)"]:::host
+  gcs["GCS bronze<br/>gs://incremental_raw"]:::store
+
+  user -->|HTTPS| fe -->|/api/v1| be
+  be -->|SQL| alloy
+  be -.->|vector + chat| qc
+  be -.->|LLM| oai
+  host -->|upload| gcs
+  pw <-->|poll tasks| tcloud
+  host <-->|crawl queue| tcloud
+  pw -->|load_bronze| gcs
+  pw -->|dbt + merge| alloy
+  pw -->|embed_vehicles ∥ embed_chatbot_vehicles| qc
+
+  classDef ext fill:#ffd8a8,stroke:#f59e0b,color:#000
+  classDef ui fill:#fff3bf,stroke:#f59e0b,color:#000
+  classDef api fill:#a5d8ff,stroke:#4a9eed,color:#000
+  classDef gold fill:#b2f2bb,stroke:#22c55e,color:#000
+  classDef vec fill:#eebefa,stroke:#ec4899,color:#000
+  classDef orch fill:#d0bfff,stroke:#8b5cf6,color:#000
+  classDef host fill:#a5d8ff,stroke:#4a9eed,color:#000
+  classDef store fill:#c3fae8,stroke:#06b6d4,color:#000
 ```
