@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { authApi, storeAuthData } from "@/lib/api";
+import { useGoogleLogin } from "@react-oauth/google";
+
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -14,7 +16,7 @@ const LoginPage = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // Form fields
   const [formData, setFormData] = useState({
     username: "",
@@ -27,6 +29,41 @@ const LoginPage = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.id]: e.target.value });
   };
+
+  const handleGoogleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setIsLoading(true);
+      try {
+        const response = await authApi.socialLogin({
+          provider: "google",
+          token: tokenResponse.access_token,
+        });
+        storeAuthData(response);
+        toast({
+          title: "Logged in successfully!",
+          description: `Welcome ${response.user.full_name || response.user.username}!`,
+        });
+        navigate("/");
+      } catch (error: any) {
+        const message = error?.response?.data?.detail || "Google authentication failed.";
+        toast({
+          title: "Error",
+          description: message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Google Sign-In Failed",
+        description: "Could not authenticate with Google. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +108,7 @@ const LoginPage = () => {
     <div className="min-h-screen bg-background flex">
       {/* Left side - Form */}
       <div className="flex-1 relative flex items-center justify-center p-8">
-        
+
         {/* Back to Home */}
         <Link
           to="/"
@@ -107,10 +144,10 @@ const LoginPage = () => {
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="full_name">Full Name</Label>
-                <Input 
-                  id="full_name" 
-                  placeholder="John Doe" 
-                  required 
+                <Input
+                  id="full_name"
+                  placeholder="John Doe"
+                  required
                   className="h-12 rounded-xl"
                   value={formData.full_name}
                   onChange={handleInputChange}
@@ -121,10 +158,10 @@ const LoginPage = () => {
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
-                <Input 
-                  id="username" 
-                  placeholder="johndoe" 
-                  required 
+                <Input
+                  id="username"
+                  placeholder="johndoe"
+                  required
                   className="h-12 rounded-xl"
                   value={formData.username}
                   onChange={handleInputChange}
@@ -134,11 +171,11 @@ const LoginPage = () => {
 
             <div className="space-y-2">
               <Label htmlFor="email">{isLogin ? "Email or Username" : "Email"}</Label>
-              <Input 
-                id="email" 
-                type={isLogin ? "text" : "email"} 
-                placeholder="you@example.com" 
-                required 
+              <Input
+                id="email"
+                type={isLogin ? "text" : "email"}
+                placeholder="you@example.com"
+                required
                 className="h-12 rounded-xl"
                 value={formData.email}
                 onChange={handleInputChange}
@@ -178,10 +215,10 @@ const LoginPage = () => {
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number (optional)</Label>
-                <Input 
-                  id="phone" 
-                  type="tel" 
-                  placeholder="+1 555-0123" 
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="+1 555-0123"
                   className="h-12 rounded-xl"
                   value={formData.phone}
                   onChange={handleInputChange}
@@ -189,7 +226,7 @@ const LoginPage = () => {
               </div>
             )}
 
-            <Button 
+            <Button
               type="submit"
               className="w-full h-12 rounded-xl bg-[#A87601] hover:bg-[#A87601]/85 hover:shadow-lg text-white font-medium text-base transition-all duration-200"
               disabled={isLoading}
@@ -217,22 +254,20 @@ const LoginPage = () => {
           </div>
 
           {/* Social Login */}
-          <div className="grid grid-cols-2 gap-4">
-            <Button variant="outline" className="h-12 rounded-xl" type="button">
+          <div className="grid grid-cols-1 gap-4">
+            <Button
+              variant="outline"
+              className="h-12 rounded-xl flex items-center justify-center gap-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-all duration-200"
+              type="button"
+              onClick={() => handleGoogleLogin()}
+              disabled={isLoading}
+            >
               <img
                 src="https://www.google.com/favicon.ico"
                 alt="Google"
-                className="h-5 w-5 mr-2"
+                className="h-5 w-5"
               />
-              Google
-            </Button>
-            <Button variant="outline" className="h-12 rounded-xl" type="button">
-              <img
-                src="https://www.facebook.com/favicon.ico"
-                alt="Facebook"
-                className="h-5 w-5 mr-2"
-              />
-              Facebook
+              Continue with Google
             </Button>
           </div>
 
@@ -259,7 +294,7 @@ const LoginPage = () => {
         />
         <div className="absolute inset-0 bg-gradient-to-r from-background via-background/60 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
-        
+
         {/* Content overlay */}
         <div className="absolute bottom-16 left-16 right-16">
           <h2 className="font-poppins text-4xl font-semibold text-foreground mb-4">
@@ -270,6 +305,8 @@ const LoginPage = () => {
           </p>
         </div>
       </div>
+
+
     </div>
   );
 };

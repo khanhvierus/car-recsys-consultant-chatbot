@@ -36,3 +36,11 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class SocialLoginInput(BaseModel):
+    provider: str
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    token: Optional[str] = None
+

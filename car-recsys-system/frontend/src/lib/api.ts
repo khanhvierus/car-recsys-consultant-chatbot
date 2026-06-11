@@ -309,6 +309,16 @@ export const authApi = {
     return response.data;
   },
 
+  async socialLogin(payload: {
+    provider: string;
+    email: string;
+    full_name?: string;
+    token?: string;
+  }): Promise<AuthResponse> {
+    const response = await api.post<AuthResponse>("/auth/social-login", payload);
+    return response.data;
+  },
+
   logout(): void {
     clearAuthData();
   },

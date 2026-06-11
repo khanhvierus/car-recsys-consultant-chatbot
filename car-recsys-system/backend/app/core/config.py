@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    GOOGLE_CLIENT_ID: str = os.getenv(
+        "GOOGLE_CLIENT_ID",
+        "893613114700-5e57386c5b899286dc2cv2j3d571scah.apps.googleusercontent.com"
+    )
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
